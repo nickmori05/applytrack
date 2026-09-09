@@ -1,5 +1,7 @@
 # ApplyTrack
 
+[![Tests](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml/badge.svg)](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml)
+
 A small command-line tool for tracking job applications and follow-up dates.
 Applications stay in a local SQLite database between runs. The first version
 uses Python's standard library and has no external package dependencies.
@@ -37,6 +39,26 @@ The due list includes today and overdue dates; rejected and withdrawn applicatio
 are excluded. An offer can still have a follow-up, such as a response deadline.
 Dates use the computer's local calendar date.
 
+## Filters and CSV exports
+
+```sh
+python3 applytrack.py list --status interviewing
+python3 applytrack.py list --due --status interviewing
+python3 applytrack.py export > applications.csv
+python3 applytrack.py export --due --status interviewing > interview-follow-ups.csv
+```
+
+Exports use the same filters and ordering as the terminal list. CSV columns are
+`id`, `company`, `role`, `status`, `applied_on`, and `follow_up_on`. Missing
+follow-up dates are empty cells; an empty export still includes its header.
+Generated CSV files are excluded from Git.
+Commas, quotes, Unicode, and embedded newlines are handled by Python's CSV writer.
+
+Company and role text starting with spreadsheet formula prefixes is exported
+with a leading apostrophe. Stored values are unchanged. CSV goes to stdout,
+so redirect it to a file; errors go to stderr. Repeating a redirection command
+with `>` replaces the destination file.
+
 ## Data
 
 The default database is `.local/applications.sqlite3` next to the script, regardless
@@ -57,6 +79,7 @@ python3 -m unittest discover -s tests -v
 
 Tests cover persistence across connections, due-date boundaries, closed applications,
 invalid-input behavior, rescheduling, missing records, and a command-line workflow.
+Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and pull requests.
 
 ## Design decisions
@@ -73,13 +96,13 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 
 Applications are recorded as submitted today. This version does not edit company
 or role, import existing applications, send notifications, or synchronize devices.
-The next small feature is an optional `--applied-on` date, with tests for valid
-historical dates and invalid input. A web interface can follow after the core
-workflow has been used and reviewed.
+Possible next steps include editing company and role details, importing existing
+records, and recording the actual submission date for older applications. A web
+interface can follow after the core workflow has been used and reviewed.
 
 ## Walk through the code
 
 1. Add an application and find where the script writes its database record.
 2. Explain why closing and reopening the program does not lose that record.
 3. Trace how `list --due` treats today's date and a rejected application.
-4. Implement `--applied-on` and add a test before calling the feature finished.
+4. Export a filtered list and explain why punctuation remains inside one CSV cell.
