@@ -1,0 +1,183 @@
+"""A small, local job-application tracker. Requires Python 3.10 or later."""
+
+import argparse
+from contextlib import closing
+from datetime import date
+from pathlib import Path
+import sqlite3
+import sys
+
+
+STATUSES = ("applied", "interviewing", "offer", "rejected", "withdrawn")
+CLOSED_STATUSES = ("rejected", "withdrawn")
+DEFAULT_DATABASE = Path(__file__).resolve().parent / ".local" / "applications.sqlite3"
+
+
+def validate_date(value: str) -> str:
+    """Accept an actual calendar date in exactly YYYY-MM-DD form."""
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("Use a valid date in YYYY-MM-DD format.") from error
+    if parsed.isoformat() != value:
+        raise ValueError("Use a valid date in YYYY-MM-DD format.")
+    return value
+
+
+def nonempty(value: str, label: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{label} cannot be empty.")
+    return value
+
+
+def connect(database: Path) -> sqlite3.Connection:
+    database.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(database)
+    connection.row_factory = sqlite3.Row
+    # A single table is sufficient for the first version. Use explicit
+    # migrations if later versions need to change the schema.
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS applications (
+            id INTEGER PRIMARY KEY,
+            company TEXT NOT NULL CHECK(length(trim(company)) > 0),
+            role TEXT NOT NULL CHECK(length(trim(role)) > 0),
+            status TEXT NOT NULL DEFAULT 'applied'
+                CHECK(status IN ('applied', 'interviewing', 'offer', 'rejected', 'withdrawn')),
+            applied_on TEXT NOT NULL,
+            follow_up_on TEXT
+        )"""
+    )
+    connection.commit()
+    return connection
+
+
+def add_application(
+    connection: sqlite3.Connection,
+    company: str,
+    role: str,
+    follow_up_on: str | None = None,
+) -> int:
+    company = nonempty(company, "Company")
+    role = nonempty(role, "Role")
+    if follow_up_on is not None:
+        follow_up_on = validate_date(follow_up_on)
+    with connection:
+        cursor = connection.execute(
+            """INSERT INTO applications (company, role, applied_on, follow_up_on)
+               VALUES (?, ?, ?, ?)""",
+            (company, role, date.today().isoformat(), follow_up_on),
+        )
+    return cursor.lastrowid
+
+
+def list_applications(
+    connection: sqlite3.Connection,
+    due_only: bool = False,
+    today: date | None = None,
+) -> list[sqlite3.Row]:
+    if due_only:
+        # ISO dates sort in calendar order. Include today and overdue items,
+        # and keep rejected/withdrawn applications out of the follow-up queue.
+        return connection.execute(
+            """SELECT * FROM applications
+               WHERE follow_up_on <= ? AND status NOT IN (?, ?)
+               ORDER BY follow_up_on, id""",
+            ((today or date.today()).isoformat(), *CLOSED_STATUSES),
+        ).fetchall()
+    return connection.execute(
+        "SELECT * FROM applications ORDER BY id DESC"
+    ).fetchall()
+
+
+def update_application(
+    connection: sqlite3.Connection,
+    application_id: int,
+    status: str | None = None,
+    follow_up_on: str | None = None,
+    clear_follow_up: bool = False,
+) -> None:
+    if status is None and follow_up_on is None and not clear_follow_up:
+        raise ValueError("Choose a status, a follow-up date, or --clear-follow-up.")
+    if status is not None and status not in STATUSES:
+        raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
+    if follow_up_on is not None and clear_follow_up:
+        raise ValueError("Set a follow-up date or clear it, but not both.")
+    if follow_up_on is not None:
+        follow_up_on = validate_date(follow_up_on)
+    # Only fixed column expressions are composed here. All user values are
+    # parameters, so punctuation in company names or dates never becomes SQL.
+    fields = []
+    values = []
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+    if follow_up_on is not None or clear_follow_up:
+        fields.append("follow_up_on = ?")
+        values.append(follow_up_on)
+    values.append(application_id)
+    with connection:
+        cursor = connection.execute(
+            f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Application {application_id} does not exist.")
+
+
+def display(rows: list[sqlite3.Row], due_only: bool) -> None:
+    if not rows:
+        print("No follow-ups due." if due_only else "No applications yet. Add your first with 'add'.")
+        return
+    for row in rows:
+        # Escape control characters in stored text before writing to a terminal.
+        company = ascii(row["company"])[1:-1]
+        role = ascii(row["role"])[1:-1]
+        print(f"#{row['id']}  {company} — {role}")
+        print(
+            f"    {row['status']} | Applied: {row['applied_on']}"
+            f" | Follow up: {row['follow_up_on'] or 'not set'}"
+        )
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(description=__doc__)
+    root.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    commands = root.add_subparsers(dest="command", required=True)
+
+    add = commands.add_parser("add", help="Record an application submitted today")
+    add.add_argument("company")
+    add.add_argument("role")
+    add.add_argument("--follow-up", metavar="YYYY-MM-DD")
+
+    listing = commands.add_parser("list", help="Show saved applications")
+    listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
+
+    update = commands.add_parser("update", help="Change an application's status or follow-up")
+    update.add_argument("id", type=int)
+    update.add_argument("--status", choices=STATUSES)
+    follow_up = update.add_mutually_exclusive_group()
+    follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
+    follow_up.add_argument("--clear-follow-up", action="store_true")
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        with closing(connect(args.database)) as connection:
+            if args.command == "add":
+                application_id = add_application(connection, args.company, args.role, args.follow_up)
+                print(f"Added application #{application_id}.")
+            elif args.command == "list":
+                display(list_applications(connection, due_only=args.due), args.due)
+            else:
+                update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up)
+                print(f"Updated application #{args.id}.")
+    except (ValueError, sqlite3.Error, OSError) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
