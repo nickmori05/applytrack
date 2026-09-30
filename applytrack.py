@@ -35,6 +35,7 @@ def connect(database: Path) -> sqlite3.Connection:
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database)
     connection.row_factory = sqlite3.Row
+    connection.create_function("casefold", 1, str.casefold, deterministic=True)
     connection.execute(
         """CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY,
@@ -75,11 +76,16 @@ def list_applications(
     today: date | None = None,
     *,
     status: str | None = None,
+    search: str | None = None,
 ) -> list[sqlite3.Row]:
     if status is not None and status not in STATUSES:
         raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
     clauses = []
     values = []
+    if search is not None:
+        search = nonempty(search, "Search").casefold()
+        clauses.append("(instr(casefold(company), ?) > 0 OR instr(casefold(role), ?) > 0)")
+        values.extend((search, search))
     if due_only:
         clauses.append("follow_up_on <= ? AND status NOT IN (?, ?)")
         values.extend(((today or date.today()).isoformat(), *CLOSED_STATUSES))
@@ -171,10 +177,12 @@ def parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("list", help="Show saved applications")
     listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
     listing.add_argument("--status", choices=STATUSES)
+    listing.add_argument("--search", help="Find company or role text, ignoring case")
 
     export = commands.add_parser("export", help="Write a CSV export to standard output")
     export.add_argument("--due", action="store_true", help="Only export follow-ups due today or earlier")
     export.add_argument("--status", choices=STATUSES)
+    export.add_argument("--search", help="Only export matching company or role text")
 
     update = commands.add_parser("update", help="Change an application's status or follow-up")
     update.add_argument("id", type=int)
@@ -193,10 +201,11 @@ def main(argv: list[str] | None = None) -> int:
                 application_id = add_application(connection, args.company, args.role, args.follow_up)
                 print(f"Added application #{application_id}.")
             elif args.command == "list":
-                display(list_applications(connection, due_only=args.due, status=args.status),
-                        args.due, filtered=args.status is not None)
+                display(list_applications(connection, due_only=args.due, status=args.status, search=args.search),
+                        args.due, filtered=args.status is not None or args.search is not None)
             elif args.command == "export":
-                export_csv(list_applications(connection, due_only=args.due, status=args.status), sys.stdout)
+                export_csv(list_applications(connection, due_only=args.due, status=args.status,
+                                             search=args.search), sys.stdout)
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up)
                 print(f"Updated application #{args.id}.")
