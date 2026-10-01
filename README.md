@@ -65,9 +65,19 @@ Dates use the computer's local calendar date.
 ```sh
 python3 applytrack.py list --status interviewing
 python3 applytrack.py list --due --status interviewing
+python3 applytrack.py list --search "backend"
 python3 applytrack.py export > applications.csv
 python3 applytrack.py export --due --status interviewing > interview-follow-ups.csv
+python3 applytrack.py export --search "Example Company" > company-applications.csv
 ```
+
+`--search` finds literal text anywhere in a company name or role. It ignores case,
+including Unicode case differences, so `STRASSE` matches `Straße`. Accents still
+matter: `Montreal` does not match `Montréal`. Surrounding spaces are trimmed and
+a blank search is rejected. `%`, `_`, quotes, and backslashes are ordinary text,
+not patterns. Search combines with `--status` and `--due` without changing the
+result order. It scans stored names and roles, which is suitable for a local
+application list rather than a large search service.
 
 Exports use the same filters and ordering as the terminal list. CSV columns are
 `id`, `company`, `role`, `status`, `applied_on`, and `follow_up_on`. Missing
