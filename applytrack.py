@@ -56,16 +56,22 @@ def add_application(
     company: str,
     role: str,
     follow_up_on: str | None = None,
+    *,
+    applied_on: str | None = None,
 ) -> int:
     company = nonempty(company, "Company")
     role = nonempty(role, "Role")
+    today = date.today().isoformat()
+    applied_on = today if applied_on is None else validate_date(applied_on)
+    if applied_on > today:
+        raise ValueError("Submission date cannot be in the future.")
     if follow_up_on is not None:
         follow_up_on = validate_date(follow_up_on)
     with connection:
         cursor = connection.execute(
             """INSERT INTO applications (company, role, applied_on, follow_up_on)
                VALUES (?, ?, ?, ?)""",
-            (company, role, date.today().isoformat(), follow_up_on),
+            (company, role, applied_on, follow_up_on),
         )
     return cursor.lastrowid
 
@@ -121,9 +127,16 @@ def update_application(
     status: str | None = None,
     follow_up_on: str | None = None,
     clear_follow_up: bool = False,
+    *,
+    company: str | None = None,
+    role: str | None = None,
 ) -> None:
-    if status is None and follow_up_on is None and not clear_follow_up:
-        raise ValueError("Choose a status, a follow-up date, or --clear-follow-up.")
+    if all(value is None for value in (status, follow_up_on, company, role)) and not clear_follow_up:
+        raise ValueError("Choose a company, role, status, follow-up date, or --clear-follow-up.")
+    if company is not None:
+        company = nonempty(company, "Company")
+    if role is not None:
+        role = nonempty(role, "Role")
     if status is not None and status not in STATUSES:
         raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
     if follow_up_on is not None and clear_follow_up:
@@ -132,6 +145,12 @@ def update_application(
         follow_up_on = validate_date(follow_up_on)
     fields = []
     values = []
+    if company is not None:
+        fields.append("company = ?")
+        values.append(company)
+    if role is not None:
+        fields.append("role = ?")
+        values.append(role)
     if status is not None:
         fields.append("status = ?")
         values.append(status)
@@ -147,6 +166,10 @@ def update_application(
             raise ValueError(f"Application {application_id} does not exist.")
 
 
+def _terminal_text(value: str) -> str:
+    return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in value)
+
+
 def display(rows: list[sqlite3.Row], due_only: bool, filtered: bool = False) -> None:
     if not rows:
         if filtered:
@@ -155,8 +178,8 @@ def display(rows: list[sqlite3.Row], due_only: bool, filtered: bool = False) -> 
             print("No follow-ups due." if due_only else "No applications yet. Add your first with 'add'.")
         return
     for row in rows:
-        company = ascii(row["company"])[1:-1]
-        role = ascii(row["role"])[1:-1]
+        company = _terminal_text(row["company"])
+        role = _terminal_text(row["role"])
         print(f"#{row['id']}  {company} — {role}")
         print(
             f"    {row['status']} | Applied: {row['applied_on']}"
@@ -169,10 +192,11 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     commands = root.add_subparsers(dest="command", required=True)
 
-    add = commands.add_parser("add", help="Record an application submitted today")
+    add = commands.add_parser("add", help="Record a submitted application")
     add.add_argument("company")
     add.add_argument("role")
     add.add_argument("--follow-up", metavar="YYYY-MM-DD")
+    add.add_argument("--applied-on", metavar="YYYY-MM-DD", help="Submission date (default: today)")
 
     listing = commands.add_parser("list", help="Show saved applications")
     listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
@@ -184,8 +208,10 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--status", choices=STATUSES)
     export.add_argument("--search", help="Only export matching company or role text")
 
-    update = commands.add_parser("update", help="Change an application's status or follow-up")
+    update = commands.add_parser("update", help="Change an application's details, status, or follow-up")
     update.add_argument("id", type=int)
+    update.add_argument("--company", help="Correct the company name")
+    update.add_argument("--role", help="Correct the role title")
     update.add_argument("--status", choices=STATUSES)
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
@@ -198,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with closing(connect(args.database)) as connection:
             if args.command == "add":
-                application_id = add_application(connection, args.company, args.role, args.follow_up)
+                application_id = add_application(connection, args.company, args.role, args.follow_up,
+                                                 applied_on=args.applied_on)
                 print(f"Added application #{application_id}.")
             elif args.command == "list":
                 display(list_applications(connection, due_only=args.due, status=args.status, search=args.search),
@@ -207,7 +234,8 @@ def main(argv: list[str] | None = None) -> int:
                 export_csv(list_applications(connection, due_only=args.due, status=args.status,
                                              search=args.search), sys.stdout)
             else:
-                update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up)
+                update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
+                                   company=args.company, role=args.role)
                 print(f"Updated application #{args.id}.")
     except (ValueError, sqlite3.Error, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)

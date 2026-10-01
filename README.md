@@ -27,12 +27,33 @@ python3 applytrack.py list --due
 The company in this example is fictional. Replace it with an application of your
 own and choose a relevant follow-up date. Use the ID printed when you add it.
 
+For an application submitted earlier, supply its actual date:
+
+```sh
+python3 applytrack.py add "Example Company" "Engineer" --applied-on 2026-09-01
+```
+
+Submission dates default to today. `--applied-on` accepts a valid `YYYY-MM-DD`
+date up to today, using the computer's local date. Invalid or future dates are
+rejected without adding an application. Lists and CSV exports retain this date.
+
 To reschedule or clear a follow-up:
 
 ```sh
 python3 applytrack.py update 1 --follow-up 2026-09-23
 python3 applytrack.py update 1 --clear-follow-up
 ```
+
+To correct company or role details without recreating the application:
+
+```sh
+python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
+```
+
+Either field can be edited on its own or combined with status and follow-up
+changes. Surrounding whitespace is trimmed; blank names are rejected. If any
+requested change is invalid, the entire update is rejected. The application ID
+and original submission date stay the same.
 
 Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
 The due list includes today and overdue dates; rejected and withdrawn applications
@@ -88,7 +109,8 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests cover persistence across connections, due-date boundaries, closed applications,
-invalid-input behavior, rescheduling, missing records, and a command-line workflow.
+invalid-input behavior, rescheduling, company and role corrections, missing records,
+and a command-line workflow.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and pull requests.
 
@@ -104,11 +126,10 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 
 ## Current limits and next step
 
-Applications are recorded as submitted today. This version does not edit company
-or role, import existing applications, send notifications, or synchronize devices.
-Possible next steps include editing company and role details, importing existing
-records, and recording the actual submission date for older applications. A web
-interface can follow after the core workflow has been used and reviewed.
+This version does not bulk-import applications, edit saved submission dates,
+send notifications, or synchronize devices. A possible next step is importing
+existing records from CSV. A web interface can follow after the core workflow
+has been used and reviewed.
 
 ## Walk through the code
 
