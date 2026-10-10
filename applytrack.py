@@ -127,6 +127,12 @@ def export_csv(rows: list[sqlite3.Row], output: TextIO) -> None:
         ])
 
 
+def _unescape_spreadsheet_text(value: str) -> str:
+    if value.startswith("'") and _spreadsheet_text(value[1:]) != value[1:]:
+        return value[1:]
+    return value
+
+
 def _import_row(row: dict) -> tuple:
     if None in row:
         raise ValueError("Row has more values than columns.")
@@ -135,15 +141,15 @@ def _import_row(row: dict) -> tuple:
     if status not in STATUSES:
         raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
     return (
-        nonempty(values["company"], "Company"),
-        nonempty(values["role"], "Role"),
+        _unescape_spreadsheet_text(nonempty(values["company"], "Company")),
+        _unescape_spreadsheet_text(nonempty(values["role"], "Role")),
         status,
         submission_date(values["applied_on"] or None),
         validate_date(values["follow_up_on"]) if values["follow_up_on"] else None,
     )
 
 
-def import_csv(connection: sqlite3.Connection, source: TextIO) -> int:
+def import_csv(connection: sqlite3.Connection, source: TextIO, *, dry_run: bool = False) -> int:
     reader = csv.DictReader(source)
     if reader.fieldnames is None:
         raise ValueError("CSV file has no header row.")
@@ -160,6 +166,8 @@ def import_csv(connection: sqlite3.Connection, source: TextIO) -> int:
             records.append(_import_row(row))
         except ValueError as error:
             raise ValueError(f"Row {number}: {error}") from error
+    if dry_run:
+        return len(records)
     with connection:
         connection.executemany(
             """INSERT INTO applications (company, role, status, applied_on, follow_up_on)
@@ -256,6 +264,10 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--status", choices=STATUSES)
     export.add_argument("--search", help="Only export matching company or role text")
 
+    importing = commands.add_parser("import", help="Add applications from a CSV file")
+    importing.add_argument("file", help="CSV file to read, or - for standard input")
+    importing.add_argument("--dry-run", action="store_true", help="Check the file without saving anything")
+
     update = commands.add_parser("update", help="Change an application's details, status, or follow-up")
     update.add_argument("id", type=int)
     update.add_argument("--company", help="Correct the company name")
@@ -281,6 +293,14 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "export":
                 export_csv(list_applications(connection, due_only=args.due, status=args.status,
                                              search=args.search), sys.stdout)
+            elif args.command == "import":
+                if args.file == "-":
+                    count = import_csv(connection, sys.stdin, dry_run=args.dry_run)
+                else:
+                    with open(args.file, newline="", encoding="utf-8-sig") as source:
+                        count = import_csv(connection, source, dry_run=args.dry_run)
+                noun = "application" if count == 1 else "applications"
+                print(f"{count} {noun} ready to import." if args.dry_run else f"Imported {count} {noun}.")
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
                                    company=args.company, role=args.role)

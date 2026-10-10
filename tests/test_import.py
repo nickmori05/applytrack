@@ -1,3 +1,4 @@
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import date, timedelta
 import io
 from pathlib import Path
@@ -69,6 +70,48 @@ class ImportTests(unittest.TestCase):
 
     def test_header_only_file_imports_nothing(self):
         self.assertEqual(self.load("company,role\n"), 0)
+        self.assertEqual(self.rows(), [])
+
+    def test_exported_file_round_trips_including_formula_like_text(self):
+        for company, role in (("=1+1", "Engineer"), ("'Quoted", "-Remote"), ('Example, "Labs"', "Line\nTwo")):
+            applytrack.add_application(self.connection, company, role, "2026-09-01", applied_on="2026-08-01")
+        exported = io.StringIO(newline="")
+        applytrack.export_csv(applytrack.list_applications(self.connection), exported)
+        before = self.rows()
+        self.assertEqual(self.load(exported.getvalue()), 3)
+        after = self.rows()[3:]
+        fields = ("company", "role", "status", "applied_on", "follow_up_on")
+        self.assertEqual([[row[f] for f in fields] for row in after][::-1],
+                         [[row[f] for f in fields] for row in before])
+
+    def run_cli(self, *args):
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = applytrack.main(["--database", str(self.database), *args])
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_cli_reads_a_spreadsheet_file_with_byte_order_mark(self):
+        path = self.database.parent / "applications.csv"
+        path.write_text("\ufeffcompany,role\nExample,Engineer\nOther,Designer\n", encoding="utf-8")
+        self.assertEqual(self.run_cli("import", str(path)), (0, "Imported 2 applications.\n", ""))
+        self.assertEqual([row["company"] for row in self.rows()], ["Example", "Other"])
+
+    def test_cli_dry_run_checks_without_saving(self):
+        path = self.database.parent / "applications.csv"
+        path.write_text("company,role\nExample,Engineer\n", encoding="utf-8")
+        self.assertEqual(self.run_cli("import", "--dry-run", str(path)),
+                         (0, "1 application ready to import.\n", ""))
+        self.assertEqual(self.rows(), [])
+
+    def test_cli_reports_errors_and_missing_files_on_stderr(self):
+        path = self.database.parent / "applications.csv"
+        path.write_text("company,role\nExample,\n", encoding="utf-8")
+        code, output, errors = self.run_cli("import", str(path))
+        self.assertEqual((code, output), (1, ""))
+        self.assertIn("Row 2: Role cannot be empty", errors)
+        code, output, errors = self.run_cli("import", str(path.with_name("missing.csv")))
+        self.assertEqual((code, output), (1, ""))
+        self.assertIn("Error:", errors)
         self.assertEqual(self.rows(), [])
 
 
