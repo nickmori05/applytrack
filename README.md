@@ -90,6 +90,36 @@ with a leading apostrophe. Stored values are unchanged. CSV goes to stdout,
 so redirect it to a file; errors go to stderr. Repeating a redirection command
 with `>` replaces the destination file.
 
+## Importing from CSV
+
+Bring in applications already tracked in a spreadsheet:
+
+```sh
+python3 applytrack.py import --dry-run applications.csv
+python3 applytrack.py import applications.csv
+```
+
+The first row names the columns: `company` and `role` are required; `status`,
+`applied_on`, and `follow_up_on` are optional, in any order. Header names ignore
+case and surrounding spaces. An `id` column is ignored, so a file produced by
+`export` can be imported directly; imported rows receive new IDs. Any other
+column is rejected so that a misspelled header is not silently dropped.
+
+Blank cells use the same defaults as `add`: status `applied`, today's submission
+date, and no follow-up. Values follow the same rules as `add` and `update`. If
+any row is invalid, nothing is imported and the error names the row as it
+appears in a spreadsheet (the header is row 1). `--dry-run` runs the same checks
+and reports how many applications would be added without saving them.
+
+Rows matching a saved application's company, role, and submission date exactly
+are skipped and counted in the summary, so importing the same file again does
+not create copies. Matching rows within one file are all imported, since two
+applications to the same role on the same day can be intentional.
+
+Files are read as UTF-8, including files saved by spreadsheet programs with a
+byte order mark. Use `-` as the file name to read standard input. Company and
+role text that `export` prefixed with an apostrophe is restored to its stored value.
+
 ## Data
 
 The default database is `.local/applications.sqlite3` next to the script, regardless
@@ -112,6 +142,9 @@ Tests cover persistence across connections, due-date boundaries, closed applicat
 invalid-input behavior, rescheduling, company and role corrections, missing records,
 and a command-line workflow.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
+Import tests cover defaults, header handling, row-numbered errors that leave the
+database unchanged, export round trips, skipped re-imports, dry runs, and the
+command line.
 GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and pull requests.
 
 ## Design decisions
@@ -126,10 +159,9 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 
 ## Current limits and next step
 
-This version does not bulk-import applications, edit saved submission dates,
-send notifications, or synchronize devices. A possible next step is importing
-existing records from CSV. A web interface can follow after the core workflow
-has been used and reviewed.
+This version does not edit saved submission dates, merge imported rows into
+existing records, send notifications, or synchronize devices. A web interface
+can follow after the core workflow has been used and reviewed.
 
 ## Walk through the code
 

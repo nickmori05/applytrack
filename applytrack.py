@@ -12,6 +12,7 @@ STATUSES = ("applied", "interviewing", "offer", "rejected", "withdrawn")
 CLOSED_STATUSES = ("rejected", "withdrawn")
 DEFAULT_DATABASE = Path(__file__).resolve().parent / ".local" / "applications.sqlite3"
 EXPORT_COLUMNS = ("id", "company", "role", "status", "applied_on", "follow_up_on")
+IMPORT_COLUMNS = ("company", "role", "status", "applied_on", "follow_up_on")
 
 
 def validate_date(value: str) -> str:
@@ -28,6 +29,14 @@ def nonempty(value: str, label: str) -> str:
     value = value.strip()
     if not value:
         raise ValueError(f"{label} cannot be empty.")
+    return value
+
+
+def submission_date(value: str | None) -> str:
+    today = date.today().isoformat()
+    value = today if value is None else validate_date(value)
+    if value > today:
+        raise ValueError("Submission date cannot be in the future.")
     return value
 
 
@@ -61,10 +70,7 @@ def add_application(
 ) -> int:
     company = nonempty(company, "Company")
     role = nonempty(role, "Role")
-    today = date.today().isoformat()
-    applied_on = today if applied_on is None else validate_date(applied_on)
-    if applied_on > today:
-        raise ValueError("Submission date cannot be in the future.")
+    applied_on = submission_date(applied_on)
     if follow_up_on is not None:
         follow_up_on = validate_date(follow_up_on)
     with connection:
@@ -119,6 +125,62 @@ def export_csv(rows: list[sqlite3.Row], output: TextIO) -> None:
             _spreadsheet_text(row[column]) if column in ("company", "role") else row[column]
             for column in EXPORT_COLUMNS
         ])
+
+
+def _unescape_spreadsheet_text(value: str) -> str:
+    if value.startswith("'") and _spreadsheet_text(value[1:]) != value[1:]:
+        return value[1:]
+    return value
+
+
+def _import_row(row: dict) -> tuple:
+    if None in row:
+        raise ValueError("Row has more values than columns.")
+    values = {column: (row.get(column) or "").strip() for column in IMPORT_COLUMNS}
+    status = values["status"] or "applied"
+    if status not in STATUSES:
+        raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
+    return (
+        _unescape_spreadsheet_text(nonempty(values["company"], "Company")),
+        _unescape_spreadsheet_text(nonempty(values["role"], "Role")),
+        status,
+        submission_date(values["applied_on"] or None),
+        validate_date(values["follow_up_on"]) if values["follow_up_on"] else None,
+    )
+
+
+def import_csv(
+    connection: sqlite3.Connection, source: TextIO, *, dry_run: bool = False
+) -> tuple[int, int]:
+    reader = csv.DictReader(source)
+    if reader.fieldnames is None:
+        raise ValueError("CSV file has no header row.")
+    reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]
+    unknown = [name for name in reader.fieldnames if name not in (*IMPORT_COLUMNS, "id")]
+    if unknown:
+        raise ValueError(f"Unknown CSV column: {unknown[0]}.")
+    missing = [name for name in ("company", "role") if name not in reader.fieldnames]
+    if missing:
+        raise ValueError(f"CSV file needs a {missing[0]} column.")
+    records = []
+    for number, row in enumerate(reader, start=2):
+        try:
+            records.append(_import_row(row))
+        except ValueError as error:
+            raise ValueError(f"Row {number}: {error}") from error
+    saved = connection.execute("SELECT company, role, applied_on FROM applications")
+    existing = {tuple(row) for row in saved}
+    new_records = [record for record in records if (record[0], record[1], record[3]) not in existing]
+    skipped = len(records) - len(new_records)
+    if dry_run:
+        return len(new_records), skipped
+    with connection:
+        connection.executemany(
+            """INSERT INTO applications (company, role, status, applied_on, follow_up_on)
+               VALUES (?, ?, ?, ?, ?)""",
+            new_records,
+        )
+    return len(new_records), skipped
 
 
 def update_application(
@@ -208,6 +270,10 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--status", choices=STATUSES)
     export.add_argument("--search", help="Only export matching company or role text")
 
+    importing = commands.add_parser("import", help="Add applications from a CSV file")
+    importing.add_argument("file", help="CSV file to read, or - for standard input")
+    importing.add_argument("--dry-run", action="store_true", help="Check the file without saving anything")
+
     update = commands.add_parser("update", help="Change an application's details, status, or follow-up")
     update.add_argument("id", type=int)
     update.add_argument("--company", help="Correct the company name")
@@ -233,6 +299,15 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "export":
                 export_csv(list_applications(connection, due_only=args.due, status=args.status,
                                              search=args.search), sys.stdout)
+            elif args.command == "import":
+                if args.file == "-":
+                    count, skipped = import_csv(connection, sys.stdin, dry_run=args.dry_run)
+                else:
+                    with open(args.file, newline="", encoding="utf-8-sig") as source:
+                        count, skipped = import_csv(connection, source, dry_run=args.dry_run)
+                noun = "application" if count == 1 else "applications"
+                summary = f"{count} {noun} ready to import" if args.dry_run else f"Imported {count} {noun}"
+                print(f"{summary}; skipped {skipped} already saved." if skipped else f"{summary}.")
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
                                    company=args.company, role=args.role)
