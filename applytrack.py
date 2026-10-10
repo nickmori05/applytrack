@@ -12,6 +12,7 @@ STATUSES = ("applied", "interviewing", "offer", "rejected", "withdrawn")
 CLOSED_STATUSES = ("rejected", "withdrawn")
 DEFAULT_DATABASE = Path(__file__).resolve().parent / ".local" / "applications.sqlite3"
 EXPORT_COLUMNS = ("id", "company", "role", "status", "applied_on", "follow_up_on")
+IMPORT_COLUMNS = ("company", "role", "status", "applied_on", "follow_up_on")
 
 
 def validate_date(value: str) -> str:
@@ -28,6 +29,14 @@ def nonempty(value: str, label: str) -> str:
     value = value.strip()
     if not value:
         raise ValueError(f"{label} cannot be empty.")
+    return value
+
+
+def submission_date(value: str | None) -> str:
+    today = date.today().isoformat()
+    value = today if value is None else validate_date(value)
+    if value > today:
+        raise ValueError("Submission date cannot be in the future.")
     return value
 
 
@@ -61,10 +70,7 @@ def add_application(
 ) -> int:
     company = nonempty(company, "Company")
     role = nonempty(role, "Role")
-    today = date.today().isoformat()
-    applied_on = today if applied_on is None else validate_date(applied_on)
-    if applied_on > today:
-        raise ValueError("Submission date cannot be in the future.")
+    applied_on = submission_date(applied_on)
     if follow_up_on is not None:
         follow_up_on = validate_date(follow_up_on)
     with connection:
@@ -119,6 +125,48 @@ def export_csv(rows: list[sqlite3.Row], output: TextIO) -> None:
             _spreadsheet_text(row[column]) if column in ("company", "role") else row[column]
             for column in EXPORT_COLUMNS
         ])
+
+
+def _import_row(row: dict) -> tuple:
+    if None in row:
+        raise ValueError("Row has more values than columns.")
+    values = {column: (row.get(column) or "").strip() for column in IMPORT_COLUMNS}
+    status = values["status"] or "applied"
+    if status not in STATUSES:
+        raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
+    return (
+        nonempty(values["company"], "Company"),
+        nonempty(values["role"], "Role"),
+        status,
+        submission_date(values["applied_on"] or None),
+        validate_date(values["follow_up_on"]) if values["follow_up_on"] else None,
+    )
+
+
+def import_csv(connection: sqlite3.Connection, source: TextIO) -> int:
+    reader = csv.DictReader(source)
+    if reader.fieldnames is None:
+        raise ValueError("CSV file has no header row.")
+    reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]
+    unknown = [name for name in reader.fieldnames if name not in (*IMPORT_COLUMNS, "id")]
+    if unknown:
+        raise ValueError(f"Unknown CSV column: {unknown[0]}.")
+    missing = [name for name in ("company", "role") if name not in reader.fieldnames]
+    if missing:
+        raise ValueError(f"CSV file needs a {missing[0]} column.")
+    records = []
+    for number, row in enumerate(reader, start=2):
+        try:
+            records.append(_import_row(row))
+        except ValueError as error:
+            raise ValueError(f"Row {number}: {error}") from error
+    with connection:
+        connection.executemany(
+            """INSERT INTO applications (company, role, status, applied_on, follow_up_on)
+               VALUES (?, ?, ?, ?, ?)""",
+            records,
+        )
+    return len(records)
 
 
 def update_application(
