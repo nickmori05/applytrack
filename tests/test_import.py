@@ -17,7 +17,7 @@ class ImportTests(unittest.TestCase):
         self.addCleanup(self.connection.close)
 
     def load(self, text):
-        return applytrack.import_csv(self.connection, io.StringIO(text, newline=""))
+        return applytrack.import_csv(self.connection, io.StringIO(text, newline=""))[0]
 
     def rows(self):
         return [dict(row) for row in applytrack.list_applications(self.connection)][::-1]
@@ -78,11 +78,22 @@ class ImportTests(unittest.TestCase):
         exported = io.StringIO(newline="")
         applytrack.export_csv(applytrack.list_applications(self.connection), exported)
         before = self.rows()
-        self.assertEqual(self.load(exported.getvalue()), 3)
-        after = self.rows()[3:]
+        other = applytrack.connect(self.database.with_name("other.sqlite3"))
+        self.addCleanup(other.close)
+        self.assertEqual(applytrack.import_csv(other, io.StringIO(exported.getvalue(), newline="")), (3, 0))
+        after = [dict(row) for row in applytrack.list_applications(other)][::-1]
         fields = ("company", "role", "status", "applied_on", "follow_up_on")
         self.assertEqual([[row[f] for f in fields] for row in after][::-1],
                          [[row[f] for f in fields] for row in before])
+
+    def test_reimporting_skips_saved_applications_but_keeps_new_ones(self):
+        text = "company,role,applied_on\nExample,Engineer,2026-08-01\nOther,Designer,2026-08-02\n"
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text)), (2, 0))
+        text += "Example,Engineer,2026-08-15\nExample,Engineer,2026-08-15\n"
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text), dry_run=True), (2, 2))
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text)), (2, 2))
+        self.assertEqual(len(self.rows()), 4)
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text)), (0, 4))
 
     def run_cli(self, *args):
         output, errors = io.StringIO(), io.StringIO()
@@ -102,6 +113,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.run_cli("import", "--dry-run", str(path)),
                          (0, "1 application ready to import.\n", ""))
         self.assertEqual(self.rows(), [])
+        self.run_cli("import", str(path))
+        self.assertEqual(self.run_cli("import", str(path)),
+                         (0, "Imported 0 applications; skipped 1 already saved.\n", ""))
 
     def test_cli_reports_errors_and_missing_files_on_stderr(self):
         path = self.database.parent / "applications.csv"

@@ -111,6 +111,11 @@ any row is invalid, nothing is imported and the error names the row as it
 appears in a spreadsheet (the header is row 1). `--dry-run` runs the same checks
 and reports how many applications would be added without saving them.
 
+Rows matching a saved application's company, role, and submission date exactly
+are skipped and counted in the summary, so importing the same file again does
+not create copies. Matching rows within one file are all imported, since two
+applications to the same role on the same day can be intentional.
+
 Files are read as UTF-8, including files saved by spreadsheet programs with a
 byte order mark. Use `-` as the file name to read standard input. Company and
 role text that `export` prefixed with an apostrophe is restored to its stored value.
@@ -138,7 +143,8 @@ invalid-input behavior, rescheduling, company and role corrections, missing reco
 and a command-line workflow.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 Import tests cover defaults, header handling, row-numbered errors that leave the
-database unchanged, export round trips, dry runs, and the command line.
+database unchanged, export round trips, skipped re-imports, dry runs, and the
+command line.
 GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and pull requests.
 
 ## Design decisions

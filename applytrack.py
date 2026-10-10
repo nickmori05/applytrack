@@ -149,7 +149,9 @@ def _import_row(row: dict) -> tuple:
     )
 
 
-def import_csv(connection: sqlite3.Connection, source: TextIO, *, dry_run: bool = False) -> int:
+def import_csv(
+    connection: sqlite3.Connection, source: TextIO, *, dry_run: bool = False
+) -> tuple[int, int]:
     reader = csv.DictReader(source)
     if reader.fieldnames is None:
         raise ValueError("CSV file has no header row.")
@@ -166,15 +168,19 @@ def import_csv(connection: sqlite3.Connection, source: TextIO, *, dry_run: bool 
             records.append(_import_row(row))
         except ValueError as error:
             raise ValueError(f"Row {number}: {error}") from error
+    saved = connection.execute("SELECT company, role, applied_on FROM applications")
+    existing = {tuple(row) for row in saved}
+    new_records = [record for record in records if (record[0], record[1], record[3]) not in existing]
+    skipped = len(records) - len(new_records)
     if dry_run:
-        return len(records)
+        return len(new_records), skipped
     with connection:
         connection.executemany(
             """INSERT INTO applications (company, role, status, applied_on, follow_up_on)
                VALUES (?, ?, ?, ?, ?)""",
-            records,
+            new_records,
         )
-    return len(records)
+    return len(new_records), skipped
 
 
 def update_application(
@@ -295,12 +301,13 @@ def main(argv: list[str] | None = None) -> int:
                                              search=args.search), sys.stdout)
             elif args.command == "import":
                 if args.file == "-":
-                    count = import_csv(connection, sys.stdin, dry_run=args.dry_run)
+                    count, skipped = import_csv(connection, sys.stdin, dry_run=args.dry_run)
                 else:
                     with open(args.file, newline="", encoding="utf-8-sig") as source:
-                        count = import_csv(connection, source, dry_run=args.dry_run)
+                        count, skipped = import_csv(connection, source, dry_run=args.dry_run)
                 noun = "application" if count == 1 else "applications"
-                print(f"{count} {noun} ready to import." if args.dry_run else f"Imported {count} {noun}.")
+                summary = f"{count} {noun} ready to import" if args.dry_run else f"Imported {count} {noun}"
+                print(f"{summary}; skipped {skipped} already saved." if skipped else f"{summary}.")
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
                                    company=args.company, role=args.role)
