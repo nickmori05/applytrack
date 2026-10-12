@@ -37,6 +37,14 @@ Submission dates default to today. `--applied-on` accepts a valid `YYYY-MM-DD`
 date up to today, using the computer's local date. Invalid or future dates are
 rejected without adding an application. Lists and CSV exports retain this date.
 
+To correct the submission date of a saved application:
+
+```sh
+python3 applytrack.py update 1 --applied-on 2026-08-28
+```
+
+The same rules apply: the date must be valid and no later than today.
+
 To reschedule or clear a follow-up:
 
 ```sh
@@ -50,10 +58,10 @@ To correct company or role details without recreating the application:
 python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
 ```
 
-Either field can be edited on its own or combined with status and follow-up
-changes. Surrounding whitespace is trimmed; blank names are rejected. If any
-requested change is invalid, the entire update is rejected. The application ID
-and original submission date stay the same.
+Either field can be edited on its own or combined with status, submission date,
+and follow-up changes. Surrounding whitespace is trimmed; blank names are rejected.
+If any requested change is invalid, the entire update is rejected. The application
+ID stays the same, and the submission date changes only when `--applied-on` is given.
 
 Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
 The due list includes today and overdue dates; rejected and withdrawn applications
@@ -113,7 +121,8 @@ and reports how many applications would be added without saving them.
 
 Rows matching a saved application's company, role, and submission date exactly
 are skipped and counted in the summary, so importing the same file again does
-not create copies. Matching rows within one file are all imported, since two
+not create copies. Correcting a saved application's details or submission date
+with `update` changes which spreadsheet rows it matches. Matching rows within one file are all imported, since two
 applications to the same role on the same day can be intentional.
 
 Files are read as UTF-8, including files saved by spreadsheet programs with a
@@ -139,8 +148,8 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests cover persistence across connections, due-date boundaries, closed applications,
-invalid-input behavior, rescheduling, company and role corrections, missing records,
-and a command-line workflow.
+invalid-input behavior, rescheduling, company, role, and submission date corrections,
+missing records, and a command-line workflow.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 Import tests cover defaults, header handling, row-numbered errors that leave the
 database unchanged, export round trips, skipped re-imports, dry runs, and the
@@ -159,8 +168,8 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 
 ## Current limits and next step
 
-This version does not edit saved submission dates, merge imported rows into
-existing records, send notifications, or synchronize devices. A web interface
+This version does not merge imported rows into existing records, delete
+applications, send notifications, or synchronize devices. A web interface
 can follow after the core workflow has been used and reviewed.
 
 ## Walk through the code
