@@ -192,9 +192,13 @@ def update_application(
     *,
     company: str | None = None,
     role: str | None = None,
+    applied_on: str | None = None,
 ) -> None:
-    if all(value is None for value in (status, follow_up_on, company, role)) and not clear_follow_up:
-        raise ValueError("Choose a company, role, status, follow-up date, or --clear-follow-up.")
+    changes = (status, follow_up_on, company, role, applied_on)
+    if all(value is None for value in changes) and not clear_follow_up:
+        raise ValueError(
+            "Choose a company, role, status, submission date, follow-up date, or --clear-follow-up."
+        )
     if company is not None:
         company = nonempty(company, "Company")
     if role is not None:
@@ -205,6 +209,8 @@ def update_application(
         raise ValueError("Set a follow-up date or clear it, but not both.")
     if follow_up_on is not None:
         follow_up_on = validate_date(follow_up_on)
+    if applied_on is not None:
+        applied_on = submission_date(applied_on)
     fields = []
     values = []
     if company is not None:
@@ -216,6 +222,9 @@ def update_application(
     if status is not None:
         fields.append("status = ?")
         values.append(status)
+    if applied_on is not None:
+        fields.append("applied_on = ?")
+        values.append(applied_on)
     if follow_up_on is not None or clear_follow_up:
         fields.append("follow_up_on = ?")
         values.append(follow_up_on)
@@ -279,6 +288,7 @@ def parser() -> argparse.ArgumentParser:
     update.add_argument("--company", help="Correct the company name")
     update.add_argument("--role", help="Correct the role title")
     update.add_argument("--status", choices=STATUSES)
+    update.add_argument("--applied-on", metavar="YYYY-MM-DD", help="Correct the submission date")
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
     follow_up.add_argument("--clear-follow-up", action="store_true")
@@ -310,7 +320,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{summary}; skipped {skipped} already saved." if skipped else f"{summary}.")
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
-                                   company=args.company, role=args.role)
+                                   company=args.company, role=args.role,
+                                   applied_on=args.applied_on)
                 print(f"Updated application #{args.id}.")
     except (ValueError, sqlite3.Error, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
