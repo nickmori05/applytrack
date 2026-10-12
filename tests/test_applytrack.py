@@ -147,6 +147,65 @@ class ApplicationTests(unittest.TestCase):
                     applytrack.update_application(self.connection, identifier, **changes)
                 self.assertEqual(dict(applytrack.list_applications(self.connection)[0]), original)
 
+    def test_submission_date_edit_preserves_other_fields_and_survives_reopening(self):
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2024-03-01")
+        applytrack.update_application(self.connection, identifier, status="interviewing")
+        original = dict(applytrack.list_applications(self.connection)[0])
+        applytrack.update_application(self.connection, identifier, applied_on="2024-02-29")
+        reopened = applytrack.connect(self.database)
+        self.addCleanup(reopened.close)
+        row = dict(applytrack.list_applications(reopened)[0])
+        self.assertEqual(row, {**original, "applied_on": "2024-02-29"})
+
+    def test_submission_date_can_be_corrected_to_today(self):
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer",
+                                                applied_on="2026-01-05")
+        today = date.today().isoformat()
+        applytrack.update_application(self.connection, identifier, applied_on=today)
+        self.assertEqual(applytrack.list_applications(self.connection)[0]["applied_on"], today)
+
+    def test_invalid_submission_date_edits_leave_entire_record_unchanged(self):
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
+        original = dict(applytrack.list_applications(self.connection)[0])
+        future = (date.today() + timedelta(days=1)).isoformat()
+        for changes in (
+            {"applied_on": ""},
+            {"applied_on": "2026-02-30"},
+            {"applied_on": "20260901"},
+            {"applied_on": future},
+            {"applied_on": future, "status": "interviewing", "company": "New company"},
+            {"applied_on": "2026-08-01", "role": "  "},
+        ):
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError):
+                    applytrack.update_application(self.connection, identifier, **changes)
+                self.assertEqual(dict(applytrack.list_applications(self.connection)[0]), original)
+
+    def test_submission_date_edit_for_unknown_identifier_reports_failure(self):
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            applytrack.update_application(self.connection, 999, applied_on="2026-09-01")
+
+    def test_cli_corrects_submission_date_and_reports_invalid_dates(self):
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer")
+        arguments = ["--database", str(self.database), "update", str(identifier)]
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = applytrack.main(arguments + ["--applied-on", "2026-08-14", "--status", "interviewing"])
+        self.assertEqual(code, 0)
+        self.assertIn(f"Updated application #{identifier}.", output.getvalue())
+        row = applytrack.list_applications(self.connection)[0]
+        self.assertEqual((row["applied_on"], row["status"]), ("2026-08-14", "interviewing"))
+        future = (date.today() + timedelta(days=1)).isoformat()
+        for value, message in (("2026-02-30", "valid date"), (future, "cannot be in the future")):
+            with self.subTest(value=value):
+                errors = io.StringIO()
+                with redirect_stderr(errors):
+                    self.assertEqual(applytrack.main(arguments + ["--applied-on", value]), 1)
+                self.assertIn(message, errors.getvalue())
+        self.assertEqual(applytrack.list_applications(self.connection)[0]["applied_on"], "2026-08-14")
+
     def test_cli_updates_details_together_with_status_and_follow_up(self):
         identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
         arguments = ["--database", str(self.database), "update", str(identifier)]

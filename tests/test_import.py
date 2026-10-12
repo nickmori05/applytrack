@@ -95,6 +95,14 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(len(self.rows()), 4)
         self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text)), (0, 4))
 
+    def test_corrected_submission_date_matches_the_spreadsheet_row_on_reimport(self):
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer")
+        text = "company,role,applied_on\nExample,Engineer,2026-08-01\n"
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text), dry_run=True), (1, 0))
+        applytrack.update_application(self.connection, identifier, applied_on="2026-08-01")
+        self.assertEqual(applytrack.import_csv(self.connection, io.StringIO(text)), (0, 1))
+        self.assertEqual(len(self.rows()), 1)
+
     def run_cli(self, *args):
         output, errors = io.StringIO(), io.StringIO()
         with redirect_stdout(output), redirect_stderr(errors):
