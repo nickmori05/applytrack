@@ -237,8 +237,36 @@ def update_application(
             raise ValueError(f"Application {application_id} does not exist.")
 
 
+def get_application(connection: sqlite3.Connection, application_id: int) -> sqlite3.Row:
+    row = connection.execute(
+        "SELECT * FROM applications WHERE id = ?", (application_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Application {application_id} does not exist.")
+    return row
+
+
+def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
+    with connection:
+        cursor = connection.execute("DELETE FROM applications WHERE id = ?", (application_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Application {application_id} does not exist.")
+
+
 def _terminal_text(value: str) -> str:
     return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in value)
+
+
+def _summary(row: sqlite3.Row) -> str:
+    return f"#{row['id']}  {_terminal_text(row['company'])} — {_terminal_text(row['role'])}"
+
+
+def _confirmed(prompt: str) -> bool:
+    try:
+        answer = input(prompt)
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
 
 
 def display(rows: list[sqlite3.Row], due_only: bool, filtered: bool = False) -> None:
@@ -249,9 +277,7 @@ def display(rows: list[sqlite3.Row], due_only: bool, filtered: bool = False) -> 
             print("No follow-ups due." if due_only else "No applications yet. Add your first with 'add'.")
         return
     for row in rows:
-        company = _terminal_text(row["company"])
-        role = _terminal_text(row["role"])
-        print(f"#{row['id']}  {company} — {role}")
+        print(_summary(row))
         print(
             f"    {row['status']} | Applied: {row['applied_on']}"
             f" | Follow up: {row['follow_up_on'] or 'not set'}"
@@ -292,6 +318,10 @@ def parser() -> argparse.ArgumentParser:
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
     follow_up.add_argument("--clear-follow-up", action="store_true")
+
+    delete = commands.add_parser("delete", help="Permanently remove an application")
+    delete.add_argument("id", type=int)
+    delete.add_argument("--yes", action="store_true", help="Delete without asking for confirmation")
     return root
 
 
@@ -318,6 +348,13 @@ def main(argv: list[str] | None = None) -> int:
                 noun = "application" if count == 1 else "applications"
                 summary = f"{count} {noun} ready to import" if args.dry_run else f"Imported {count} {noun}"
                 print(f"{summary}; skipped {skipped} already saved." if skipped else f"{summary}.")
+            elif args.command == "delete":
+                row = get_application(connection, args.id)
+                if not args.yes and not _confirmed(f"Delete {_summary(row)}? [y/N] "):
+                    print("Nothing deleted.", file=sys.stderr)
+                    return 1
+                delete_application(connection, args.id)
+                print(f"Deleted application #{args.id}.")
             else:
                 update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
                                    company=args.company, role=args.role,

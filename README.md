@@ -63,6 +63,22 @@ and follow-up changes. Surrounding whitespace is trimmed; blank names are reject
 If any requested change is invalid, the entire update is rejected. The application
 ID stays the same, and the submission date changes only when `--applied-on` is given.
 
+To remove an application entirely, such as a duplicate or a test entry:
+
+```sh
+python3 applytrack.py delete 1
+python3 applytrack.py delete 1 --yes
+```
+
+`delete` shows the application's company and role and asks for confirmation.
+Only `y` or `yes` deletes it; any other answer, or no input, leaves it saved and
+exits with status 1. `--yes` skips the question for scripts. Deletion is permanent
+and there is no undo, so export a CSV first if you may want the record back. For an
+application that simply ended, prefer `--status rejected` or `--status withdrawn`,
+which keeps its history. Once deleted, a matching spreadsheet row is no longer
+skipped by `import`. If the most recently added application is deleted, the next
+one added may receive the same ID.
+
 Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
 The due list includes today and overdue dates; rejected and withdrawn applications
 are excluded. An offer can still have a follow-up, such as a response deadline.
@@ -150,6 +166,8 @@ python3 -m unittest discover -s tests -v
 Tests cover persistence across connections, due-date boundaries, closed applications,
 invalid-input behavior, rescheduling, company, role, and submission date corrections,
 missing records, and a command-line workflow.
+Delete tests cover removing one record, unknown IDs, declined and closed
+confirmation prompts, `--yes`, and the import interaction.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 Import tests cover defaults, header handling, row-numbered errors that leave the
 database unchanged, export round trips, skipped re-imports, dry runs, and the
@@ -168,8 +186,8 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 
 ## Current limits and next step
 
-This version does not merge imported rows into existing records, delete
-applications, send notifications, or synchronize devices. A web interface
+This version does not merge imported rows into existing records, archive or
+restore deleted applications, send notifications, or synchronize devices. A web interface
 can follow after the core workflow has been used and reviewed.
 
 ## Walk through the code
