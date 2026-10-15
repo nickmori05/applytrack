@@ -40,14 +40,11 @@ def submission_date(value: str | None) -> str:
     return value
 
 
-def connect(database: Path) -> sqlite3.Connection:
-    database.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database)
-    connection.row_factory = sqlite3.Row
-    connection.create_function("casefold", 1, str.casefold, deterministic=True)
+def _create_table(connection: sqlite3.Connection, name: str) -> None:
+    # AUTOINCREMENT keeps SQLite from handing out the ID of a deleted application again.
     connection.execute(
-        """CREATE TABLE IF NOT EXISTS applications (
-            id INTEGER PRIMARY KEY,
+        f"""CREATE TABLE IF NOT EXISTS {name} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             company TEXT NOT NULL CHECK(length(trim(company)) > 0),
             role TEXT NOT NULL CHECK(length(trim(role)) > 0),
             status TEXT NOT NULL DEFAULT 'applied'
@@ -56,7 +53,48 @@ def connect(database: Path) -> sqlite3.Connection:
             follow_up_on TEXT
         )"""
     )
+
+
+def _reuses_ids(connection: sqlite3.Connection) -> bool:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'applications'"
+    ).fetchone()
+    return "AUTOINCREMENT" not in row["sql"].upper()
+
+
+def _migrate_ids(connection: sqlite3.Connection) -> None:
+    # Databases created before IDs were kept unique are copied into the current
+    # table in one transaction, so a failure leaves the original table in place.
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        if _reuses_ids(connection):
+            _create_table(connection, "applications_migrated")
+            connection.execute(
+                """INSERT INTO applications_migrated
+                       (id, company, role, status, applied_on, follow_up_on)
+                   SELECT id, company, role, status, applied_on, follow_up_on FROM applications"""
+            )
+            connection.execute("DROP TABLE applications")
+            connection.execute("ALTER TABLE applications_migrated RENAME TO applications")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
+def connect(database: Path) -> sqlite3.Connection:
+    database.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(database)
+    connection.row_factory = sqlite3.Row
+    connection.create_function("casefold", 1, str.casefold, deterministic=True)
+    _create_table(connection, "applications")
     connection.commit()
+    if _reuses_ids(connection):
+        try:
+            _migrate_ids(connection)
+        except BaseException:
+            connection.close()
+            raise
     return connection
 
 

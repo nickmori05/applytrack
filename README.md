@@ -76,8 +76,8 @@ exits with status 1. `--yes` skips the question for scripts. Deletion is permane
 and there is no undo, so export a CSV first if you may want the record back. For an
 application that simply ended, prefer `--status rejected` or `--status withdrawn`,
 which keeps its history. Once deleted, a matching spreadsheet row is no longer
-skipped by `import`. If the most recently added application is deleted, the next
-one added may receive the same ID.
+skipped by `import`. A deleted application's ID is never given to another
+application, so an old export or note that mentions it cannot point to the wrong record.
 
 Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
 The due list includes today and overdue dates; rejected and withdrawn applications
@@ -151,6 +151,12 @@ The default database is `.local/applications.sqlite3` next to the script, regard
 of the directory from which it is launched. That folder is excluded from Git.
 There is no remote service, account system, or automatic synchronization.
 
+Databases created by earlier versions are upgraded automatically the first time
+they are opened, keeping every application and its ID. The upgrade runs in a
+single transaction, so if it fails the database is left as it was and the error
+is shown. SQLite records the highest saved ID during the upgrade; an ID above that,
+deleted before upgrading, can still be used once more.
+
 Use a separate database for experiments:
 
 ```sh
@@ -168,6 +174,9 @@ invalid-input behavior, rescheduling, company, role, and submission date correct
 missing records, and a command-line workflow.
 Delete tests cover removing one record, unknown IDs, declined and closed
 confirmation prompts, `--yes`, and the import interaction.
+ID tests cover deleted IDs staying unused, upgrading databases from earlier
+versions with their records and IDs intact, and a failed upgrade leaving the
+database unchanged.
 Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
 Import tests cover defaults, header handling, row-numbered errors that leave the
 database unchanged, export round trips, skipped re-imports, dry runs, and the
@@ -183,6 +192,8 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 - **Calendar dates:** a follow-up represents a day, not a reminder at a particular
   time. ISO-formatted dates allow straightforward ordering after validation.
 - **Parameterized SQL:** user-entered values are data, including punctuation in names.
+- **IDs are never reused:** the table uses `AUTOINCREMENT`, so an ID always refers
+  to the same application, even after it is deleted.
 
 ## Current limits and next step
 
