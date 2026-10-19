@@ -81,8 +81,9 @@ class IdentifierTests(unittest.TestCase):
     def test_legacy_database_keeps_its_records_and_ids(self):
         self.create_legacy_database()
         connection = self.open()
-        rows = [tuple(row) for row in reversed(applytrack.list_applications(connection))]
+        rows = [tuple(row)[:-1] for row in reversed(applytrack.list_applications(connection))]
         self.assertEqual(rows, LEGACY_ROWS)
+        self.assertEqual(self.raw("SELECT count(*) FROM applications WHERE archived_on IS NOT NULL"), [(0,)])
         self.assertIn("AUTOINCREMENT", self.table_sql())
         self.assertEqual(self.raw("SELECT name FROM sqlite_master WHERE name LIKE '%migrated%'"), [])
 
