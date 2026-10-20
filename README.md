@@ -1,232 +1,224 @@
 # ApplyTrack
 
-[![Tests](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml/badge.svg)](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml)
+[![CI](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml/badge.svg)](https://github.com/nickmori05/applytrack/actions/workflows/tests.yml)
 
-A small command-line tool for tracking job applications and follow-up dates.
-Applications stay in a local SQLite database between runs. The first version
-uses Python's standard library and has no external package dependencies.
+ApplyTrack is a command-line tool for tracking job applications and the dates
+you need to follow up on them. Applications are kept in a local SQLite database,
+so there is no account, server, or network access involved. It uses only the
+Python standard library.
+
+- Record applications with their submission and follow-up dates.
+- See what needs a follow-up today, filter by status, and search by company or role.
+- Correct details, archive applications you no longer want to see, or delete mistakes.
+- Export to CSV for a spreadsheet, and import from one.
 
 ## Quick start
 
-Requires Python 3.10 or later. Clone the repository and open its folder:
+Requires Python 3.10 or later and nothing else.
 
 ```sh
 git clone https://github.com/nickmori05/applytrack.git
 cd applytrack
-```
-
-Then add an application:
-
-```sh
 python3 applytrack.py add "Example Company" "Software Engineer" --follow-up 2026-09-16
-python3 applytrack.py list
 python3 applytrack.py update 1 --status interviewing
+python3 applytrack.py list
 python3 applytrack.py list --due
 ```
 
-The company in this example is fictional. Replace it with an application of your
-own and choose a relevant follow-up date. Use the ID printed when you add it.
+The company is fictional; use your own applications and follow-up dates, and the
+ID printed by `add`. Run `python3 applytrack.py --help`, or `--help` after any
+command, for every option. `python3 -m applytrack` works the same way.
 
-For an application submitted earlier, supply its actual date:
+## Usage
+
+### Adding applications
 
 ```sh
-python3 applytrack.py add "Example Company" "Engineer" --applied-on 2026-09-01
+python3 applytrack.py add "Example Company" "Engineer"
+python3 applytrack.py add "Example Company" "Engineer" --applied-on 2026-09-01 --follow-up 2026-09-15
 ```
 
-Submission dates default to today. `--applied-on` accepts a valid `YYYY-MM-DD`
-date up to today, using the computer's local date. Invalid or future dates are
-rejected without adding an application. Lists and CSV exports retain this date.
+The submission date defaults to today and can be any valid `YYYY-MM-DD` date up
+to today. Follow-up dates can be any valid date. Company and role are trimmed and
+cannot be blank. Invalid input is rejected without saving anything.
 
-To correct the submission date of a saved application:
+All dates use the computer's local calendar date. A follow-up represents a day,
+not a reminder at a particular time.
+
+### Listing and searching
 
 ```sh
+python3 applytrack.py list
+python3 applytrack.py list --due
+python3 applytrack.py list --status interviewing
+python3 applytrack.py list --search "backend"
+```
+
+`list` shows the newest application first. `--due` shows follow-ups due today or
+earlier, oldest first, leaving out `rejected` and `withdrawn` applications. An
+`offer` can still have a follow-up, such as a response deadline.
+
+Statuses are `applied`, `interviewing`, `offer`, `rejected`, and `withdrawn`.
+
+`--search` finds literal text anywhere in a company name or role. It ignores case,
+including Unicode case differences (`STRASSE` matches `Straße`), but not accents
+(`Montreal` does not match `Montréal`). `%`, `_`, quotes, and backslashes are
+ordinary text, not patterns, and a blank search is rejected.
+
+`--due`, `--status`, and `--search` can be combined. Company and role text is
+shown with control characters escaped, so stored text cannot rewrite the terminal.
+
+### Updating
+
+```sh
+python3 applytrack.py update 1 --status interviewing
+python3 applytrack.py update 1 --follow-up 2026-09-23
+python3 applytrack.py update 1 --clear-follow-up
+python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
 python3 applytrack.py update 1 --applied-on 2026-08-28
 ```
 
-The same rules apply: the date must be valid and no later than today.
+Any of these options can be combined. They follow the same rules as `add`, and if
+any requested change is invalid, the whole update is rejected. The ID never changes.
 
-To reschedule or clear a follow-up:
-
-```sh
-python3 applytrack.py update 1 --follow-up 2026-09-23
-python3 applytrack.py update 1 --clear-follow-up
-```
-
-To correct company or role details without recreating the application:
-
-```sh
-python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
-```
-
-Either field can be edited on its own or combined with status, submission date,
-and follow-up changes. Surrounding whitespace is trimmed; blank names are rejected.
-If any requested change is invalid, the entire update is rejected. The application
-ID stays the same, and the submission date changes only when `--applied-on` is given.
-
-To remove an application entirely, such as a duplicate or a test entry:
-
-```sh
-python3 applytrack.py delete 1
-python3 applytrack.py delete 1 --yes
-```
-
-`delete` shows the application's company and role and asks for confirmation.
-Only `y` or `yes` deletes it; any other answer, or no input, leaves it saved and
-exits with status 1. `--yes` skips the question for scripts. Deletion is permanent
-and there is no undo, so export a CSV first if you may want the record back. For an
-application that simply ended, prefer `--status rejected` or `--status withdrawn`,
-or archive it, which keeps its history. Once deleted, a matching spreadsheet row
-is no longer skipped by `import`. A deleted application's ID is never given to
-another application, so an old export or note that mentions it cannot point to
-the wrong record.
-
-To hide an application without losing it, archive it, and restore it later:
+### Archiving and deleting
 
 ```sh
 python3 applytrack.py archive 1
 python3 applytrack.py list --archived
 python3 applytrack.py restore 1
+python3 applytrack.py delete 1
+python3 applytrack.py delete 1 --yes
 ```
 
-Archived applications are left out of `list`, `list --due`, and `export`, and keep
-their status and dates. `--archived` shows or exports only archived applications,
-with the date each was archived, and combines with `--status`, `--search`, and
-`--due`. They can still be updated or deleted by ID, and `import` still skips
-spreadsheet rows that match one. Archiving an archived application, or restoring
-one that is not archived, is reported as an error and changes nothing.
+Archiving hides an application from `list`, `list --due`, and `export` and keeps
+its status and dates. `--archived` shows or exports only archived applications,
+with the date each was archived, and combines with the other filters. Archived
+applications can still be updated or deleted by ID. Archiving one that is already
+archived, or restoring one that is not, is an error and changes nothing.
 
-Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
-The due list includes today and overdue dates; rejected and withdrawn applications
-are excluded. An offer can still have a follow-up, such as a response deadline.
-Dates use the computer's local calendar date.
+`delete` shows the application and asks for confirmation. Only `y` or `yes`
+deletes it; any other answer, or no input, leaves it saved and exits with status 1.
+`--yes` skips the question for scripts. Deletion is permanent, so export a CSV
+first if you may want the record back, and prefer archiving or the `rejected` and
+`withdrawn` statuses for applications that simply ended. A deleted application's
+ID is never given to another application.
 
-## Filters and CSV exports
+### Exporting to CSV
 
 ```sh
-python3 applytrack.py list --status interviewing
-python3 applytrack.py list --due --status interviewing
-python3 applytrack.py list --search "backend"
 python3 applytrack.py export > applications.csv
 python3 applytrack.py export --due --status interviewing > interview-follow-ups.csv
-python3 applytrack.py export --search "Example Company" > company-applications.csv
+python3 applytrack.py export --archived > archived.csv
 ```
 
-`--search` finds literal text anywhere in a company name or role. It ignores case,
-including Unicode case differences, so `STRASSE` matches `Straße`. Accents still
-matter: `Montreal` does not match `Montréal`. Surrounding spaces are trimmed and
-a blank search is rejected. `%`, `_`, quotes, and backslashes are ordinary text,
-not patterns. Search combines with `--status` and `--due` without changing the
-result order. It scans stored names and roles, which is suitable for a local
-application list rather than a large search service.
+`export` takes the same filters as `list`, uses the same order, and writes to
+standard output; errors go to stderr. The columns are `id`, `company`, `role`,
+`status`, `applied_on`, and `follow_up_on`. A missing follow-up is an empty cell,
+and an empty export still has its header. Company and role text that a spreadsheet
+would treat as a formula, such as text starting with `=`, `+`, `-`, or `@`, is
+written with a leading apostrophe; the stored value is unchanged. CSV files are ignored by Git.
 
-Exports use the same filters and ordering as the terminal list. CSV columns are
-`id`, `company`, `role`, `status`, `applied_on`, and `follow_up_on`. Missing
-follow-up dates are empty cells; an empty export still includes its header.
-Generated CSV files are excluded from Git.
-Commas, quotes, Unicode, and embedded newlines are handled by Python's CSV writer.
-
-Company and role text starting with spreadsheet formula prefixes is exported
-with a leading apostrophe. Stored values are unchanged. CSV goes to stdout,
-so redirect it to a file; errors go to stderr. Repeating a redirection command
-with `>` replaces the destination file.
-
-## Importing from CSV
-
-Bring in applications already tracked in a spreadsheet:
+### Importing from CSV
 
 ```sh
 python3 applytrack.py import --dry-run applications.csv
 python3 applytrack.py import applications.csv
 ```
 
-The first row names the columns: `company` and `role` are required; `status`,
-`applied_on`, and `follow_up_on` are optional, in any order. Header names ignore
-case and surrounding spaces. An `id` column is ignored, so a file produced by
-`export` can be imported directly; imported rows receive new IDs. Any other
-column is rejected so that a misspelled header is not silently dropped.
+The header row must include `company` and `role`. `status`, `applied_on`, and
+`follow_up_on` are optional, in any order, and header names ignore case and
+surrounding spaces. An `id` column is ignored, so a file from `export` can be
+imported directly; imported rows receive new IDs. Any other column is rejected so
+a misspelled header is not silently dropped.
 
-Blank cells use the same defaults as `add`: status `applied`, today's submission
-date, and no follow-up. Values follow the same rules as `add` and `update`. If
-any row is invalid, nothing is imported and the error names the row as it
-appears in a spreadsheet (the header is row 1). `--dry-run` runs the same checks
-and reports how many applications would be added without saving them.
+Blank cells use the same defaults as `add`, and values follow the same rules. If
+any row is invalid, nothing is imported and the error names the row as numbered
+in a spreadsheet (the header is row 1). `--dry-run` runs every check and reports
+how many applications would be added without saving them.
 
-Rows matching a saved application's company, role, and submission date exactly
-are skipped and counted in the summary, so importing the same file again does
-not create copies. Correcting a saved application's details or submission date
-with `update` changes which spreadsheet rows it matches. Matching rows within one file are all imported, since two
-applications to the same role on the same day can be intentional.
+Rows matching a saved application's company, role, and submission date exactly,
+including an archived one, are skipped and counted, so importing the same file
+twice does not create copies. Matching rows within one file are all imported,
+since two applications to the same role on the same day can be intentional.
 
-Files are read as UTF-8, including files saved by spreadsheet programs with a
-byte order mark. Use `-` as the file name to read standard input. Company and
-role text that `export` prefixed with an apostrophe is restored to its stored value.
+Files are read as UTF-8, with or without the byte order mark some spreadsheet
+programs add. Use `-` as the file name to read standard input. The apostrophe that
+`export` adds to formula-like text is removed again.
 
 ## Data
 
-The default database is `.local/applications.sqlite3` next to the script, regardless
-of the directory from which it is launched. That folder is excluded from Git.
-There is no remote service, account system, or automatic synchronization.
-
-Databases created by earlier versions are upgraded automatically the first time
-they are opened, keeping every application and its ID, with every application
-active. Each upgrade step runs in a single transaction, so if one fails the
-database is left as it was and the error is shown. Upgrading needs write access
-to the database file. SQLite records the highest saved ID during the upgrade; an
-ID above that, deleted before upgrading, can still be used once more.
-
-Use a separate database for experiments:
+The default database is `.local/applications.sqlite3` at the top of the checkout,
+whichever directory the command is run from; `.local/` is ignored by Git. Use
+`--database` for a separate one, for example to experiment:
 
 ```sh
 python3 applytrack.py --database .local/demo.sqlite3 add "Example Company" "Engineer"
 ```
 
-## Checks
+Databases created by earlier versions are upgraded automatically the first time
+they are opened, keeping every application and its ID. Each upgrade step runs in
+a single transaction, so if one fails the database is left as it was and the error
+is shown. Upgrading needs write access to the database file. SQLite records the
+highest saved ID during the upgrade; an ID above that, deleted before upgrading,
+can still be used once more.
+
+## Design
+
+```text
+applytrack.py         thin entry point for running from a checkout
+applytrack/
+  validation.py       statuses and the date and text rules shared by every command
+  storage.py          SQLite schema, automatic upgrades, and record operations
+  csv_io.py           CSV export and import
+  cli.py              argument parsing, terminal output, and exit codes
+  __main__.py         python3 -m applytrack
+tests/                unittest suite, one file per area
+```
+
+- **SQLite:** durable local storage without running a server. One table fits the
+  data. A shared or web version would need a different storage and access design.
+- **Storage is separate from the interface:** `storage` and `csv_io` raise
+  `ValueError` for invalid input and never print. `cli` turns errors into an
+  `Error: ...` message on stderr with exit status 1.
+- **Validate, then write once:** every value in a command or import is checked
+  before anything is saved, and each write runs in a transaction, so a rejected
+  command leaves the database unchanged.
+- **Parameterized SQL:** user-entered values are always data, including
+  punctuation in names.
+- **Calendar dates as ISO text:** follow-ups are days, and validated `YYYY-MM-DD`
+  strings sort correctly in SQL.
+- **IDs are never reused:** the table uses `AUTOINCREMENT`, so an ID always refers
+  to the same application, even after it is deleted.
+- **Archiving is separate from status:** an `archived_on` date hides an
+  application without changing its status, so restoring it brings back exactly
+  what was saved.
+
+## Development
+
+Run the test suite from the top of the checkout:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Tests cover persistence across connections, due-date boundaries, closed applications,
-invalid-input behavior, rescheduling, company, role, and submission date corrections,
-missing records, and a command-line workflow.
-Delete tests cover removing one record, unknown IDs, declined and closed
-confirmation prompts, `--yes`, and the import interaction.
-Archive tests cover hiding and restoring applications, combined filters, repeated
-or unknown requests, imports, the command line, and upgrading databases created
-before archiving existed, including a failed upgrade.
-ID tests cover deleted IDs staying unused, upgrading databases from earlier
-versions with their records and IDs intact, and a failed upgrade leaving the
-database unchanged.
-Export tests cover filtering, CSV quoting, empty exports, and formula-like text.
-Import tests cover defaults, header handling, row-numbered errors that leave the
-database unchanged, export round trips, skipped re-imports, dry runs, and the
-command line.
-GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and pull requests.
+Linting uses [Ruff](https://docs.astral.sh/ruff/), configured in `pyproject.toml`.
+Install it, for example in a virtual environment, and run `ruff check .`.
 
-## Design decisions
+The tests use temporary databases and cover persistence across connections,
+due-date boundaries, validation and rejected changes, search, CSV quoting and
+round trips, imports, deletion prompts, archiving, ID reuse, and upgrading
+databases from earlier versions, including failed upgrades. GitHub Actions runs
+the tests on Python 3.10 and 3.14 and `ruff check` for pushes to `main` and for
+pull requests.
 
-- **SQLite:** durable local storage without provisioning a server. One table fits
-  the current data. A shared web application would require a new storage and access design.
-- **A command-line interface first:** makes the initial workflow small and easy
-  to inspect. Storage functions are separate from argument parsing and display.
-- **Calendar dates:** a follow-up represents a day, not a reminder at a particular
-  time. ISO-formatted dates allow straightforward ordering after validation.
-- **Parameterized SQL:** user-entered values are data, including punctuation in names.
-- **IDs are never reused:** the table uses `AUTOINCREMENT`, so an ID always refers
-  to the same application, even after it is deleted.
-- **Archiving is separate from status:** an `archived_on` date hides an application
-  without changing its status, so restoring it brings back exactly what was saved.
+## Limitations
 
-## Current limits and next step
-
-This version does not merge imported rows into existing records, restore deleted
-applications, record archive state in CSV exports, send notifications, or
-synchronize devices. A web interface can follow after the core workflow has been
-used and reviewed.
-
-## Walk through the code
-
-1. Add an application and find where the script writes its database record.
-2. Explain why closing and reopening the program does not lose that record.
-3. Trace how `list --due` treats today's date and a rejected application.
-4. Export a filtered list and explain why punctuation remains inside one CSV cell.
+- One local database per checkout. There is no synchronization between devices,
+  no notifications, and no web interface.
+- Importing does not merge rows into existing applications; it only adds or skips.
+- Deleted applications cannot be restored, and CSV exports do not record whether
+  an application is archived.
+- ApplyTrack is meant to be run from a checkout and is not published as a package.
+  The default database location assumes a checkout, so pass `--database` if you
+  install it with `pip`.
