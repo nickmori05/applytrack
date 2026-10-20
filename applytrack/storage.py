@@ -9,7 +9,8 @@ from datetime import date
 from pathlib import Path
 import sqlite3
 
-from .validation import CLOSED_STATUSES, check_status, nonempty, submission_date, validate_date
+from . import history
+from .validation import CLOSED_STATUSES, check_status, nonempty, past_date, submission_date, validate_date
 
 
 def _create_table(connection: sqlite3.Connection, name: str) -> None:
@@ -57,7 +58,14 @@ def _add_archive(connection: sqlite3.Connection) -> None:
     connection.execute("ALTER TABLE applications ADD COLUMN archived_on TEXT")
 
 
-UPGRADES = ((_reuses_ids, _migrate_ids), (_lacks_archive, _add_archive))
+# Applied in order. The history table is created here rather than with the
+# applications table, so a database from before IDs were kept unique is rebuilt
+# before anything else exists in it.
+UPGRADES = (
+    (_reuses_ids, _migrate_ids),
+    (_lacks_archive, _add_archive),
+    (history.lacks_table, history.create_table),
+)
 
 
 def _upgrade(
@@ -176,13 +184,22 @@ def update_application(
     company: str | None = None,
     role: str | None = None,
     applied_on: str | None = None,
+    changed_on: str | None = None,
+    today: date | None = None,
 ) -> None:
     """Change the given fields of one application, leaving the rest as they are.
+
+    A new status is added to the application's history, dated ``changed_on`` or
+    ``today`` (default: the local date). That date cannot be in the future,
+    before the submission date, or before the last recorded change, and the
+    submission date cannot move after the first recorded change.
 
     Every value is validated before anything is written, so an invalid change
     rejects the whole update. Raises ValueError if nothing is requested, if a
     follow-up is both set and cleared, or if the application does not exist.
     """
+    if changed_on is not None and status is None:
+        raise ValueError("A status change date needs a new status.")
     changes = (status, follow_up_on, company, role, applied_on)
     if all(value is None for value in changes) and not clear_follow_up:
         raise ValueError(
@@ -200,6 +217,8 @@ def update_application(
         follow_up_on = validate_date(follow_up_on)
     if applied_on is not None:
         applied_on = submission_date(applied_on)
+    if changed_on is not None:
+        changed_on = past_date(changed_on, "Status change date")
     fields = []
     values = []
     if company is not None:
@@ -219,11 +238,38 @@ def update_application(
         values.append(follow_up_on)
     values.append(application_id)
     with connection:
-        cursor = connection.execute(
-            f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values
-        )
-        if cursor.rowcount == 0:
-            raise ValueError(f"Application {application_id} does not exist.")
+        # Take the write lock before reading, so the checks still hold when writing.
+        connection.execute("BEGIN IMMEDIATE")
+        changed_on = _status_change_date(connection, application_id, status, applied_on, changed_on, today)
+        connection.execute(f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values)
+        if changed_on is not None:
+            history.record_change(connection, application_id, status, changed_on)
+
+
+def _status_change_date(
+    connection: sqlite3.Connection,
+    application_id: int,
+    status: str | None,
+    applied_on: str | None,
+    changed_on: str | None,
+    today: date | None,
+) -> str | None:
+    # Return the date to record for a new status, or None if the status is not
+    # changing, after checking the update against the recorded history.
+    current = get_application(connection, application_id)
+    first_change, last_change = history.change_dates(connection, application_id)
+    if applied_on is not None and first_change is not None and applied_on > first_change:
+        raise ValueError(f"Submission date cannot be after the first recorded status change ({first_change}).")
+    if status is None or status == current["status"]:
+        if changed_on is not None:
+            raise ValueError(f"Application {application_id} already has status {status}; there is no change to date.")
+        return None
+    changed_on = changed_on or (today or date.today()).isoformat()
+    if changed_on < (applied_on or current["applied_on"]):
+        raise ValueError("Status change date cannot be before the submission date.")
+    if last_change is not None and changed_on < last_change:
+        raise ValueError(f"Status change date cannot be before the last recorded change ({last_change}).")
+    return changed_on
 
 
 def get_application(connection: sqlite3.Connection, application_id: int) -> sqlite3.Row:
@@ -276,8 +322,12 @@ def archived_count(connection: sqlite3.Connection) -> int:
 
 
 def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
-    """Permanently remove one application, or raise ValueError if it does not exist."""
+    """Permanently remove one application and its status history.
+
+    Raises ValueError if the application does not exist.
+    """
     with connection:
+        history.delete_changes(connection, application_id)
         cursor = connection.execute("DELETE FROM applications WHERE id = ?", (application_id,))
         if cursor.rowcount == 0:
             raise ValueError(f"Application {application_id} does not exist.")

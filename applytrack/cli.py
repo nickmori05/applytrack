@@ -7,6 +7,7 @@ import sqlite3
 import sys
 
 from .csv_io import export_csv, import_csv
+from .history import status_changes, timeline
 from .storage import (
     add_application,
     archive_application,
@@ -107,9 +108,14 @@ def parser() -> argparse.ArgumentParser:
     update.add_argument("--role", help="Correct the role title")
     update.add_argument("--status", choices=STATUSES)
     update.add_argument("--applied-on", metavar="YYYY-MM-DD", help="Correct the submission date")
+    update.add_argument("--changed-on", metavar="YYYY-MM-DD",
+                        help="Date the new --status took effect (default: today)")
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
     follow_up.add_argument("--clear-follow-up", action="store_true")
+
+    history = commands.add_parser("history", help="Show the dates an application's status changed")
+    history.add_argument("id", type=int, help="Application ID")
 
     archive = commands.add_parser("archive", help="Hide an application from lists and exports")
     archive.add_argument("id", type=int, help="Application ID")
@@ -159,8 +165,17 @@ def _import(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 def _update(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
-                       company=args.company, role=args.role, applied_on=args.applied_on)
+                       company=args.company, role=args.role, applied_on=args.applied_on,
+                       changed_on=args.changed_on)
     print(f"Updated application #{args.id}.")
+    return 0
+
+
+def _history(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    row = get_application(connection, args.id)
+    print(_summary(row))
+    for changed_on, status in timeline(row, status_changes(connection, args.id)):
+        print(f"    {changed_on or 'unknown':<10}  {status}")
     return 0
 
 
@@ -192,6 +207,7 @@ COMMANDS = {
     "export": _export,
     "import": _import,
     "update": _update,
+    "history": _history,
     "archive": _archive,
     "restore": _restore,
     "delete": _delete,
