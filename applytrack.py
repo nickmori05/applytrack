@@ -1,4 +1,5 @@
 import argparse
+from collections.abc import Callable
 from contextlib import closing
 import csv
 from datetime import date
@@ -50,7 +51,8 @@ def _create_table(connection: sqlite3.Connection, name: str) -> None:
             status TEXT NOT NULL DEFAULT 'applied'
                 CHECK(status IN ('applied', 'interviewing', 'offer', 'rejected', 'withdrawn')),
             applied_on TEXT NOT NULL,
-            follow_up_on TEXT
+            follow_up_on TEXT,
+            archived_on TEXT
         )"""
     )
 
@@ -63,19 +65,42 @@ def _reuses_ids(connection: sqlite3.Connection) -> bool:
 
 
 def _migrate_ids(connection: sqlite3.Connection) -> None:
-    # Databases created before IDs were kept unique are copied into the current
-    # table in one transaction, so a failure leaves the original table in place.
+    # Databases created before IDs were kept unique are copied into the current table.
+    _create_table(connection, "applications_migrated")
+    connection.execute(
+        """INSERT INTO applications_migrated
+               (id, company, role, status, applied_on, follow_up_on)
+           SELECT id, company, role, status, applied_on, follow_up_on FROM applications"""
+    )
+    connection.execute("DROP TABLE applications")
+    connection.execute("ALTER TABLE applications_migrated RENAME TO applications")
+
+
+def _lacks_archive(connection: sqlite3.Connection) -> bool:
+    columns = connection.execute("PRAGMA table_info(applications)").fetchall()
+    return "archived_on" not in {column["name"] for column in columns}
+
+
+def _add_archive(connection: sqlite3.Connection) -> None:
+    # Existing applications start out active, so the new column is left NULL.
+    connection.execute("ALTER TABLE applications ADD COLUMN archived_on TEXT")
+
+
+UPGRADES = ((_reuses_ids, _migrate_ids), (_lacks_archive, _add_archive))
+
+
+def _upgrade(
+    connection: sqlite3.Connection,
+    needed: Callable[[sqlite3.Connection], bool],
+    apply: Callable[[sqlite3.Connection], None],
+) -> None:
+    # Each upgrade runs in one transaction, so a failure leaves the database as it
+    # was. The check is repeated after taking the write lock, so two processes
+    # opening the same old database do not both apply it.
     connection.execute("BEGIN IMMEDIATE")
     try:
-        if _reuses_ids(connection):
-            _create_table(connection, "applications_migrated")
-            connection.execute(
-                """INSERT INTO applications_migrated
-                       (id, company, role, status, applied_on, follow_up_on)
-                   SELECT id, company, role, status, applied_on, follow_up_on FROM applications"""
-            )
-            connection.execute("DROP TABLE applications")
-            connection.execute("ALTER TABLE applications_migrated RENAME TO applications")
+        if needed(connection):
+            apply(connection)
         connection.commit()
     except BaseException:
         connection.rollback()
@@ -89,12 +114,13 @@ def connect(database: Path) -> sqlite3.Connection:
     connection.create_function("casefold", 1, str.casefold, deterministic=True)
     _create_table(connection, "applications")
     connection.commit()
-    if _reuses_ids(connection):
-        try:
-            _migrate_ids(connection)
-        except BaseException:
-            connection.close()
-            raise
+    for needed, apply in UPGRADES:
+        if needed(connection):
+            try:
+                _upgrade(connection, needed, apply)
+            except BaseException:
+                connection.close()
+                raise
     return connection
 
 
@@ -127,10 +153,11 @@ def list_applications(
     *,
     status: str | None = None,
     search: str | None = None,
+    archived: bool = False,
 ) -> list[sqlite3.Row]:
     if status is not None and status not in STATUSES:
         raise ValueError(f"Status must be one of: {', '.join(STATUSES)}.")
-    clauses = []
+    clauses = ["archived_on IS NOT NULL" if archived else "archived_on IS NULL"]
     values = []
     if search is not None:
         search = nonempty(search, "Search").casefold()
@@ -142,7 +169,7 @@ def list_applications(
     if status is not None:
         clauses.append("status = ?")
         values.append(status)
-    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    where = " WHERE " + " AND ".join(clauses)
     order = " ORDER BY follow_up_on, id" if due_only else " ORDER BY id DESC"
     return connection.execute(
         "SELECT * FROM applications" + where + order, values
@@ -284,6 +311,36 @@ def get_application(connection: sqlite3.Connection, application_id: int) -> sqli
     return row
 
 
+def archive_application(
+    connection: sqlite3.Connection, application_id: int, today: date | None = None
+) -> None:
+    with connection:
+        cursor = connection.execute(
+            "UPDATE applications SET archived_on = ? WHERE id = ? AND archived_on IS NULL",
+            ((today or date.today()).isoformat(), application_id),
+        )
+        if cursor.rowcount == 0:
+            get_application(connection, application_id)
+            raise ValueError(f"Application {application_id} is already archived.")
+
+
+def restore_application(connection: sqlite3.Connection, application_id: int) -> None:
+    with connection:
+        cursor = connection.execute(
+            "UPDATE applications SET archived_on = NULL WHERE id = ? AND archived_on IS NOT NULL",
+            (application_id,),
+        )
+        if cursor.rowcount == 0:
+            get_application(connection, application_id)
+            raise ValueError(f"Application {application_id} is not archived.")
+
+
+def archived_count(connection: sqlite3.Connection) -> int:
+    return connection.execute(
+        "SELECT count(*) FROM applications WHERE archived_on IS NOT NULL"
+    ).fetchone()[0]
+
+
 def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
     with connection:
         cursor = connection.execute("DELETE FROM applications WHERE id = ?", (application_id,))
@@ -307,18 +364,28 @@ def _confirmed(prompt: str) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
-def display(rows: list[sqlite3.Row], due_only: bool, filtered: bool = False) -> None:
+def display(
+    rows: list[sqlite3.Row], due_only: bool, filtered: bool = False, *, archived: bool = False,
+    hidden: int = 0,
+) -> None:
     if not rows:
         if filtered:
             print("No applications match these filters.")
+        elif due_only:
+            print("No follow-ups due.")
+        elif archived:
+            print("No archived applications.")
+        elif hidden:
+            print(f"No active applications; {hidden} archived. Show them with 'list --archived'.")
         else:
-            print("No follow-ups due." if due_only else "No applications yet. Add your first with 'add'.")
+            print("No applications yet. Add your first with 'add'.")
         return
     for row in rows:
         print(_summary(row))
+        archived_on = f" | Archived: {row['archived_on']}" if row["archived_on"] else ""
         print(
             f"    {row['status']} | Applied: {row['applied_on']}"
-            f" | Follow up: {row['follow_up_on'] or 'not set'}"
+            f" | Follow up: {row['follow_up_on'] or 'not set'}{archived_on}"
         )
 
 
@@ -337,11 +404,13 @@ def parser() -> argparse.ArgumentParser:
     listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
     listing.add_argument("--status", choices=STATUSES)
     listing.add_argument("--search", help="Find company or role text, ignoring case")
+    listing.add_argument("--archived", action="store_true", help="Show archived applications instead")
 
     export = commands.add_parser("export", help="Write a CSV export to standard output")
     export.add_argument("--due", action="store_true", help="Only export follow-ups due today or earlier")
     export.add_argument("--status", choices=STATUSES)
     export.add_argument("--search", help="Only export matching company or role text")
+    export.add_argument("--archived", action="store_true", help="Export archived applications instead")
 
     importing = commands.add_parser("import", help="Add applications from a CSV file")
     importing.add_argument("file", help="CSV file to read, or - for standard input")
@@ -356,6 +425,12 @@ def parser() -> argparse.ArgumentParser:
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
     follow_up.add_argument("--clear-follow-up", action="store_true")
+
+    archive = commands.add_parser("archive", help="Hide an application from lists and exports")
+    archive.add_argument("id", type=int)
+
+    restore = commands.add_parser("restore", help="Return an archived application to lists and exports")
+    restore.add_argument("id", type=int)
 
     delete = commands.add_parser("delete", help="Permanently remove an application")
     delete.add_argument("id", type=int)
@@ -372,11 +447,14 @@ def main(argv: list[str] | None = None) -> int:
                                                  applied_on=args.applied_on)
                 print(f"Added application #{application_id}.")
             elif args.command == "list":
-                display(list_applications(connection, due_only=args.due, status=args.status, search=args.search),
-                        args.due, filtered=args.status is not None or args.search is not None)
+                rows = list_applications(connection, due_only=args.due, status=args.status,
+                                         search=args.search, archived=args.archived)
+                filtered = args.status is not None or args.search is not None
+                hidden = 0 if rows or filtered or args.due or args.archived else archived_count(connection)
+                display(rows, args.due, filtered=filtered, archived=args.archived, hidden=hidden)
             elif args.command == "export":
                 export_csv(list_applications(connection, due_only=args.due, status=args.status,
-                                             search=args.search), sys.stdout)
+                                             search=args.search, archived=args.archived), sys.stdout)
             elif args.command == "import":
                 if args.file == "-":
                     count, skipped = import_csv(connection, sys.stdin, dry_run=args.dry_run)
@@ -386,6 +464,12 @@ def main(argv: list[str] | None = None) -> int:
                 noun = "application" if count == 1 else "applications"
                 summary = f"{count} {noun} ready to import" if args.dry_run else f"Imported {count} {noun}"
                 print(f"{summary}; skipped {skipped} already saved." if skipped else f"{summary}.")
+            elif args.command == "archive":
+                archive_application(connection, args.id)
+                print(f"Archived application #{args.id}.")
+            elif args.command == "restore":
+                restore_application(connection, args.id)
+                print(f"Restored application #{args.id}.")
             elif args.command == "delete":
                 row = get_application(connection, args.id)
                 if not args.yes and not _confirmed(f"Delete {_summary(row)}? [y/N] "):

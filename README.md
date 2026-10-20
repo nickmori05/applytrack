@@ -75,9 +75,25 @@ Only `y` or `yes` deletes it; any other answer, or no input, leaves it saved and
 exits with status 1. `--yes` skips the question for scripts. Deletion is permanent
 and there is no undo, so export a CSV first if you may want the record back. For an
 application that simply ended, prefer `--status rejected` or `--status withdrawn`,
-which keeps its history. Once deleted, a matching spreadsheet row is no longer
-skipped by `import`. A deleted application's ID is never given to another
-application, so an old export or note that mentions it cannot point to the wrong record.
+or archive it, which keeps its history. Once deleted, a matching spreadsheet row
+is no longer skipped by `import`. A deleted application's ID is never given to
+another application, so an old export or note that mentions it cannot point to
+the wrong record.
+
+To hide an application without losing it, archive it, and restore it later:
+
+```sh
+python3 applytrack.py archive 1
+python3 applytrack.py list --archived
+python3 applytrack.py restore 1
+```
+
+Archived applications are left out of `list`, `list --due`, and `export`, and keep
+their status and dates. `--archived` shows or exports only archived applications,
+with the date each was archived, and combines with `--status`, `--search`, and
+`--due`. They can still be updated or deleted by ID, and `import` still skips
+spreadsheet rows that match one. Archiving an archived application, or restoring
+one that is not archived, is reported as an error and changes nothing.
 
 Statuses: `applied`, `interviewing`, `offer`, `rejected`, `withdrawn`.
 The due list includes today and overdue dates; rejected and withdrawn applications
@@ -152,10 +168,11 @@ of the directory from which it is launched. That folder is excluded from Git.
 There is no remote service, account system, or automatic synchronization.
 
 Databases created by earlier versions are upgraded automatically the first time
-they are opened, keeping every application and its ID. The upgrade runs in a
-single transaction, so if it fails the database is left as it was and the error
-is shown. SQLite records the highest saved ID during the upgrade; an ID above that,
-deleted before upgrading, can still be used once more.
+they are opened, keeping every application and its ID, with every application
+active. Each upgrade step runs in a single transaction, so if one fails the
+database is left as it was and the error is shown. Upgrading needs write access
+to the database file. SQLite records the highest saved ID during the upgrade; an
+ID above that, deleted before upgrading, can still be used once more.
 
 Use a separate database for experiments:
 
@@ -174,6 +191,9 @@ invalid-input behavior, rescheduling, company, role, and submission date correct
 missing records, and a command-line workflow.
 Delete tests cover removing one record, unknown IDs, declined and closed
 confirmation prompts, `--yes`, and the import interaction.
+Archive tests cover hiding and restoring applications, combined filters, repeated
+or unknown requests, imports, the command line, and upgrading databases created
+before archiving existed, including a failed upgrade.
 ID tests cover deleted IDs staying unused, upgrading databases from earlier
 versions with their records and IDs intact, and a failed upgrade leaving the
 database unchanged.
@@ -194,12 +214,15 @@ GitHub Actions runs the suite on Python 3.10 and 3.14 for pushes to `main` and p
 - **Parameterized SQL:** user-entered values are data, including punctuation in names.
 - **IDs are never reused:** the table uses `AUTOINCREMENT`, so an ID always refers
   to the same application, even after it is deleted.
+- **Archiving is separate from status:** an `archived_on` date hides an application
+  without changing its status, so restoring it brings back exactly what was saved.
 
 ## Current limits and next step
 
-This version does not merge imported rows into existing records, archive or
-restore deleted applications, send notifications, or synchronize devices. A web interface
-can follow after the core workflow has been used and reviewed.
+This version does not merge imported rows into existing records, restore deleted
+applications, record archive state in CSV exports, send notifications, or
+synchronize devices. A web interface can follow after the core workflow has been
+used and reviewed.
 
 ## Walk through the code
 
