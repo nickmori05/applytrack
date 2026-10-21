@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 import sqlite3
 
-from . import history
+from . import history, notes
 from .validation import CLOSED_STATUSES, check_status, nonempty, past_date, submission_date, validate_date
 
 
@@ -58,13 +58,14 @@ def _add_archive(connection: sqlite3.Connection) -> None:
     connection.execute("ALTER TABLE applications ADD COLUMN archived_on TEXT")
 
 
-# Applied in order. The history table is created here rather than with the
-# applications table, so a database from before IDs were kept unique is rebuilt
-# before anything else exists in it.
+# Applied in order. The history and notes tables are created here rather than
+# with the applications table, so a database from before IDs were kept unique is
+# rebuilt before anything else exists in it.
 UPGRADES = (
     (_reuses_ids, _migrate_ids),
     (_lacks_archive, _add_archive),
     (history.lacks_table, history.create_table),
+    (notes.lacks_table, notes.create_table),
 )
 
 
@@ -321,13 +322,32 @@ def archived_count(connection: sqlite3.Connection) -> int:
     ).fetchone()[0]
 
 
+def add_note(
+    connection: sqlite3.Connection, application_id: int, body: str, noted_on: str | None = None
+) -> int:
+    """Save a note about an application, archived or not, and return the note's ID.
+
+    ``body`` is trimmed and must not be blank. ``noted_on`` defaults to today and
+    cannot be in the future, but may be before the submission date. Raises
+    ValueError if the application does not exist.
+    """
+    body = nonempty(body, "Note")
+    noted_on = date.today().isoformat() if noted_on is None else past_date(noted_on, "Note date")
+    with connection:
+        note_id = notes.record_note(connection, application_id, noted_on, body)
+    if note_id is None:
+        raise ValueError(f"Application {application_id} does not exist.")
+    return note_id
+
+
 def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
-    """Permanently remove one application and its status history.
+    """Permanently remove one application, its status history, and its notes.
 
     Raises ValueError if the application does not exist.
     """
     with connection:
         history.delete_changes(connection, application_id)
+        notes.delete_notes(connection, application_id)
         cursor = connection.execute("DELETE FROM applications WHERE id = ?", (application_id,))
         if cursor.rowcount == 0:
             raise ValueError(f"Application {application_id} does not exist.")

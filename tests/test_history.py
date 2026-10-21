@@ -235,7 +235,8 @@ class HistoryUpgradeTests(unittest.TestCase):
         applytrack.connect(self.database).close()
         schema = self.schema()
         self.assertEqual([name for kind, name, _ in schema if kind in ("table", "index")],
-                         ["applications", "sqlite_sequence", "status_changes", "status_changes_by_application"])
+                         ["applications", "notes", "notes_by_application", "sqlite_sequence", "status_changes",
+                          "status_changes_by_application"])
         applytrack.connect(self.database).close()
         self.assertEqual(self.schema(), schema)
 
