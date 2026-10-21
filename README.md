@@ -10,6 +10,8 @@ Python standard library.
 - Record applications with their submission and follow-up dates.
 - See what needs a follow-up today, filter by status, and search by company or role.
 - Keep a dated history of each application's status changes.
+- Summarize your search: statuses, response and interview rates, and how long
+  employers take to respond.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
 - Export to CSV for a spreadsheet, and import from one.
 
@@ -111,6 +113,41 @@ was kept, or imported with a status other than `applied`, show that status with
 the date `unknown` until it next changes. Archiving does not change the history,
 and deleting an application deletes its history.
 
+### Summary statistics
+
+```sh
+python3 applytrack.py stats
+python3 applytrack.py stats --since 2026-09-01
+```
+
+```text
+Applications: 4 (1 archived)
+    applied       1
+    interviewing  0
+    offer         1
+    rejected      1
+    withdrawn     1
+Responses: 2 of 4 (50%)
+Interviews: 1 of 4 (25%)
+Days to first response: median 12, fastest 3, slowest 21 (from 2 responses)
+```
+
+`stats` counts every application, archived ones included, since archiving tidies
+lists but does not change what happened. `--since` counts only applications
+submitted on or after a date.
+
+An application has a response once it reaches `interviewing`, `offer`, or
+`rejected`, and an interview once it reaches `interviewing` or `offer`. These come
+from its status history, so one that was interviewed and later rejected or
+withdrawn still counts as interviewed, while one withdrawn before any response
+does not count as a response. Rates are out of all counted applications, so recent
+applications that have not had time for a reply lower them.
+
+Days to first response run from the submission date to the first response in the
+history. Responses whose date is `unknown`, from before history was kept or from
+an import, count toward the response rate but not the timing, and the summary says
+how many were left out. The line is omitted when there are no responses.
+
 ### Archiving and deleting
 
 ```sh
@@ -202,6 +239,7 @@ applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
+  stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
   cli.py              argument parsing, terminal output, and exit codes
   __main__.py         python3 -m applytrack
@@ -244,10 +282,10 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search, CSV quoting and
-round trips, imports, deletion prompts, archiving, status history, ID reuse, and
-upgrading databases from earlier versions, including failed upgrades. GitHub
-Actions runs the tests on Python 3.10 and 3.14 and `ruff check` for pushes to
-`main` and for pull requests.
+round trips, imports, deletion prompts, archiving, status history, summary
+statistics, ID reuse, and upgrading databases from earlier versions, including
+failed upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and
+`ruff check` for pushes to `main` and for pull requests.
 
 ## Limitations
 
@@ -258,6 +296,8 @@ Actions runs the tests on Python 3.10 and 3.14 and `ruff check` for pushes to
   an application is archived or its status history.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
+- `stats` has no end date or per-company breakdown, and its timing covers only
+  responses recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
   The default database location assumes a checkout, so pass `--database` if you
   install it with `pip`.

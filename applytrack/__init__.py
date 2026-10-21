@@ -5,15 +5,17 @@ The package is split by concern:
 - ``validation``: statuses and the date and text rules every entry point shares.
 - ``storage``: the SQLite schema, automatic upgrades, and record operations.
 - ``history``: the dated status changes behind ``history ID``.
+- ``stats``: the status, response, and timing summary behind ``stats``.
 - ``csv_io``: CSV export and import.
 - ``cli``: argument parsing, terminal output, and exit codes.
 
 The names below are re-exported so callers can use ``import applytrack``.
 """
 
-from .cli import DEFAULT_DATABASE, display, main, parser
+from .cli import DEFAULT_DATABASE, display, main, parser, summary_lines
 from .csv_io import EXPORT_COLUMNS, IMPORT_COLUMNS, export_csv, import_csv
 from .history import status_changes, timeline
+from .stats import INTERVIEW_STATUSES, RESPONSE_STATUSES, Summary, summarize
 from .storage import (
     add_application,
     archive_application,
@@ -32,7 +34,10 @@ __all__ = [
     "DEFAULT_DATABASE",
     "EXPORT_COLUMNS",
     "IMPORT_COLUMNS",
+    "INTERVIEW_STATUSES",
+    "RESPONSE_STATUSES",
     "STATUSES",
+    "Summary",
     "add_application",
     "archive_application",
     "archived_count",
@@ -49,6 +54,8 @@ __all__ = [
     "restore_application",
     "status_changes",
     "submission_date",
+    "summarize",
+    "summary_lines",
     "timeline",
     "update_application",
     "validate_date",

@@ -4,10 +4,12 @@ import argparse
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+from statistics import median
 import sys
 
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
+from .stats import Summary, summarize
 from .storage import (
     add_application,
     archive_application,
@@ -73,6 +75,36 @@ def display(
         )
 
 
+def _share(count: int, total: int) -> str:
+    return f"{count} of {total} ({count / total:.0%})"
+
+
+def _dated(days: tuple[int, ...], responded: int) -> str:
+    if len(days) == responded:
+        return f"from {responded} response" + ("" if responded == 1 else "s")
+    return f"from {len(days)} of {responded} responses; the rest have no recorded date"
+
+
+def summary_lines(summary: Summary, since: str | None = None) -> list[str]:
+    """Return the lines ``stats`` prints for a summary of at least one application.
+
+    ``since`` is the submission date the summary was limited to, if any.
+    """
+    archived = f" ({summary.archived} archived)" if summary.archived else ""
+    scope = f" submitted on or after {since}" if since else ""
+    lines = [f"Applications{scope}: {summary.total}{archived}"]
+    lines.extend(f"    {status:<12}  {count}" for status, count in summary.by_status.items())
+    lines.append(f"Responses: {_share(summary.responded, summary.total)}")
+    lines.append(f"Interviews: {_share(summary.interviewed, summary.total)}")
+    days = summary.response_days
+    if days:
+        lines.append(f"Days to first response: median {median(days):g}, fastest {days[0]}, slowest {days[-1]}"
+                     f" ({_dated(days, summary.responded)})")
+    elif summary.responded:
+        lines.append("Days to first response: no response dates recorded yet")
+    return lines
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the argument parser for every subcommand."""
     root = argparse.ArgumentParser(description="Track job applications and follow-up dates locally.")
@@ -113,6 +145,9 @@ def parser() -> argparse.ArgumentParser:
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
     follow_up.add_argument("--clear-follow-up", action="store_true")
+
+    stats = commands.add_parser("stats", help="Summarize statuses, responses, and time to respond")
+    stats.add_argument("--since", metavar="YYYY-MM-DD", help="Only count applications submitted on or after this date")
 
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
@@ -171,6 +206,17 @@ def _update(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _stats(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    summary = summarize(connection, since=args.since)
+    if summary.total:
+        print("\n".join(summary_lines(summary, args.since)))
+    elif args.since:
+        print(f"No applications submitted on or after {args.since}.")
+    else:
+        print("No applications yet. Add your first with 'add'.")
+    return 0
+
+
 def _history(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     row = get_application(connection, args.id)
     print(_summary(row))
@@ -208,6 +254,7 @@ COMMANDS = {
     "import": _import,
     "update": _update,
     "history": _history,
+    "stats": _stats,
     "archive": _archive,
     "restore": _restore,
     "delete": _delete,
