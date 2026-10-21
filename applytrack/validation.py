@@ -29,16 +29,22 @@ def nonempty(value: str, label: str) -> str:
     return value
 
 
+def past_date(value: str, label: str) -> str:
+    """Return ``value`` if it is a valid date no later than today's local date.
+
+    ``label`` names the date in the error, for example ``Submission date``.
+    """
+    if validate_date(value) > date.today().isoformat():
+        raise ValueError(f"{label} cannot be in the future.")
+    return value
+
+
 def submission_date(value: str | None) -> str:
     """Return a validated submission date, defaulting to today.
 
     Raises ValueError if the date is invalid or later than today's local date.
     """
-    today = date.today().isoformat()
-    value = today if value is None else validate_date(value)
-    if value > today:
-        raise ValueError("Submission date cannot be in the future.")
-    return value
+    return date.today().isoformat() if value is None else past_date(value, "Submission date")
 
 
 def check_status(status: str) -> str:

@@ -9,6 +9,7 @@ Python standard library.
 
 - Record applications with their submission and follow-up dates.
 - See what needs a follow-up today, filter by status, and search by company or role.
+- Keep a dated history of each application's status changes.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
 - Export to CSV for a spreadsheet, and import from one.
 
@@ -76,10 +77,39 @@ python3 applytrack.py update 1 --follow-up 2026-09-23
 python3 applytrack.py update 1 --clear-follow-up
 python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
 python3 applytrack.py update 1 --applied-on 2026-08-28
+python3 applytrack.py update 1 --status offer --changed-on 2026-09-30
 ```
 
 Any of these options can be combined. They follow the same rules as `add`, and if
 any requested change is invalid, the whole update is rejected. The ID never changes.
+
+### Status history
+
+```sh
+python3 applytrack.py update 1 --status interviewing --changed-on 2026-09-12
+python3 applytrack.py history 1
+```
+
+```text
+#1  Example Company — Software Engineer
+    2026-09-01  applied
+    2026-09-12  interviewing
+    2026-09-30  offer
+```
+
+Every `update --status` that changes the status adds a dated entry to the
+application's history; setting the status it already has adds nothing. The date
+is today unless `--changed-on` gives the day the change really happened, such as
+the day an interview invitation arrived. It cannot be in the future, before the
+submission date, or before the last recorded change, so the history always reads
+in order and ends with the current status. For the same reason, `--applied-on`
+cannot move the submission date after the first recorded change. Changes made on
+the same day are kept in the order they were entered.
+
+The history starts with the submission date. Applications saved before history
+was kept, or imported with a status other than `applied`, show that status with
+the date `unknown` until it next changes. Archiving does not change the history,
+and deleting an application deletes its history.
 
 ### Archiving and deleting
 
@@ -157,11 +187,12 @@ python3 applytrack.py --database .local/demo.sqlite3 add "Example Company" "Engi
 ```
 
 Databases created by earlier versions are upgraded automatically the first time
-they are opened, keeping every application and its ID. Each upgrade step runs in
-a single transaction, so if one fails the database is left as it was and the error
-is shown. Upgrading needs write access to the database file. SQLite records the
-highest saved ID during the upgrade; an ID above that, deleted before upgrading,
-can still be used once more.
+they are opened, keeping every application and its ID. The status history starts
+empty, so a status set before the upgrade shows the date `unknown`. Each upgrade
+step runs in a single transaction, so if one fails the database is left as it was
+and the error is shown. Upgrading needs write access to the database file. SQLite
+records the highest saved ID during the upgrade; an ID above that, deleted before
+upgrading, can still be used once more.
 
 ## Design
 
@@ -170,14 +201,16 @@ applytrack.py         thin entry point for running from a checkout
 applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
+  history.py          dated status changes and the timeline shown by history
   csv_io.py           CSV export and import
   cli.py              argument parsing, terminal output, and exit codes
   __main__.py         python3 -m applytrack
 tests/                unittest suite, one file per area
 ```
 
-- **SQLite:** durable local storage without running a server. One table fits the
-  data. A shared or web version would need a different storage and access design.
+- **SQLite:** durable local storage without running a server. One table holds
+  applications and a second their status changes. A shared or web version would
+  need a different storage and access design.
 - **Storage is separate from the interface:** `storage` and `csv_io` raise
   `ValueError` for invalid input and never print. `cli` turns errors into an
   `Error: ...` message on stderr with exit status 1.
@@ -190,6 +223,10 @@ tests/                unittest suite, one file per area
   strings sort correctly in SQL.
 - **IDs are never reused:** the table uses `AUTOINCREMENT`, so an ID always refers
   to the same application, even after it is deleted.
+- **History is written with the status:** `update` takes the write lock, checks
+  the new dates against the recorded history, and saves the status and its history
+  entry in one transaction. `delete` removes both together, so the history table
+  does not depend on SQLite foreign keys being enabled.
 - **Archiving is separate from status:** an `archived_on` date hides an
   application without changing its status, so restoring it brings back exactly
   what was saved.
@@ -207,10 +244,10 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search, CSV quoting and
-round trips, imports, deletion prompts, archiving, ID reuse, and upgrading
-databases from earlier versions, including failed upgrades. GitHub Actions runs
-the tests on Python 3.10 and 3.14 and `ruff check` for pushes to `main` and for
-pull requests.
+round trips, imports, deletion prompts, archiving, status history, ID reuse, and
+upgrading databases from earlier versions, including failed upgrades. GitHub
+Actions runs the tests on Python 3.10 and 3.14 and `ruff check` for pushes to
+`main` and for pull requests.
 
 ## Limitations
 
@@ -218,7 +255,9 @@ pull requests.
   no notifications, and no web interface.
 - Importing does not merge rows into existing applications; it only adds or skips.
 - Deleted applications cannot be restored, and CSV exports do not record whether
-  an application is archived.
+  an application is archived or its status history.
+- Status history records days, not times, and only changes made with `update`.
+  A recorded change cannot be edited or removed except by deleting the application.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
   The default database location assumes a checkout, so pass `--database` if you
   install it with `pip`.
