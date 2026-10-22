@@ -16,10 +16,10 @@ The names below are re-exported so callers can use ``import applytrack``.
 
 from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import Counts, Record, read_backup, record_counts
-from .cli import DEFAULT_DATABASE, display, main, note_lines, parser, summary_lines
+from .cli import DEFAULT_DATABASE, display, main, note_excerpt, note_lines, parser, summary_lines
 from .csv_io import EXPORT_COLUMNS, IMPORT_COLUMNS, export_csv, import_csv
 from .history import status_changes, timeline
-from .notes import application_notes
+from .notes import application_notes, matching_notes
 from .stats import INTERVIEW_STATUSES, RESPONSE_STATUSES, Summary, summarize
 from .storage import (
     add_application,
@@ -59,7 +59,9 @@ __all__ = [
     "import_csv",
     "list_applications",
     "main",
+    "matching_notes",
     "nonempty",
+    "note_excerpt",
     "note_lines",
     "parser",
     "read_backup",

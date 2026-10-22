@@ -5,7 +5,15 @@ exists, and ``storage.delete_application`` removes an application's notes in the
 same transaction as the application.
 """
 
+from collections import defaultdict
 import sqlite3
+
+# An SQL condition, used by storage.list_applications, that is true when one of
+# the application's notes contains the casefolded search text bound to it.
+MATCHES = (
+    "EXISTS (SELECT 1 FROM notes WHERE notes.application_id = applications.id"
+    " AND instr(casefold(notes.body), ?) > 0)"
+)
 
 
 def create_table(connection: sqlite3.Connection) -> None:
@@ -53,3 +61,20 @@ def application_notes(connection: sqlite3.Connection, application_id: int) -> li
         "SELECT id, noted_on, body FROM notes WHERE application_id = ? ORDER BY noted_on, id",
         (application_id,),
     ).fetchall()
+
+
+def matching_notes(connection: sqlite3.Connection, search: str) -> dict[int, list[sqlite3.Row]]:
+    """Return the notes containing ``search``, ignoring case, grouped by application.
+
+    Surrounding whitespace in ``search`` is ignored, as in
+    ``storage.list_applications``. Each application's notes are oldest first.
+    """
+    matches = defaultdict(list)
+    rows = connection.execute(
+        "SELECT id, application_id, noted_on, body FROM notes WHERE instr(casefold(body), ?) > 0"
+        " ORDER BY application_id, noted_on, id",
+        (search.strip().casefold(),),
+    )
+    for row in rows:
+        matches[row["application_id"]].append(row)
+    return dict(matches)
