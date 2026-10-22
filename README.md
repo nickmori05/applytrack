@@ -8,7 +8,8 @@ so there is no account, server, or network access involved. It uses only the
 Python standard library.
 
 - Record applications with their submission and follow-up dates.
-- See what needs a follow-up today, filter by status, and search by company or role.
+- See what needs a follow-up today, filter by status, and search company, role,
+  and note text.
 - Keep a dated history of each application's status changes.
 - Keep dated notes on each application, such as who you spoke to and what comes next.
 - Summarize your search: statuses, response and interview rates, and how long
@@ -58,6 +59,7 @@ python3 applytrack.py list
 python3 applytrack.py list --due
 python3 applytrack.py list --status interviewing
 python3 applytrack.py list --search "backend"
+python3 applytrack.py list --search "sam"
 ```
 
 `list` shows the newest application first. `--due` shows follow-ups due today or
@@ -66,13 +68,29 @@ earlier, oldest first, leaving out `rejected` and `withdrawn` applications. An
 
 Statuses are `applied`, `interviewing`, `offer`, `rejected`, and `withdrawn`.
 
-`--search` finds literal text anywhere in a company name or role. It ignores case,
-including Unicode case differences (`STRASSE` matches `Straße`), but not accents
-(`Montreal` does not match `Montréal`). `%`, `_`, quotes, and backslashes are
-ordinary text, not patterns, and a blank search is rejected.
+`--search` finds literal text anywhere in a company name, role, or any of an
+application's notes, so you can find an application by the recruiter's name or a
+detail you wrote down. It ignores case, including Unicode case differences
+(`STRASSE` matches `Straße`), but not accents (`Montreal` does not match
+`Montréal`). `%`, `_`, quotes, and backslashes are ordinary text, not patterns, and
+a blank search is rejected.
 
-`--due`, `--status`, and `--search` can be combined. Company and role text is
-shown with control characters escaped, so stored text cannot rewrite the terminal.
+`list --search` shows each matching note's date and the line that matched below
+its application, so you can see why it was found:
+
+```text
+#1  Example Company — Software Engineer
+    interviewing | Applied: 2026-09-01 | Follow up: 2026-09-15
+    Note 2026-09-03: Recruiter call with Sam; take-home due Friday.
+```
+
+A line longer than 100 characters is shortened around the match, with `…` where
+it was cut. Use `notes ID` to read the full notes.
+
+`--due`, `--status`, and `--search` can be combined, and like the other filters,
+`--search` looks only at active applications unless `--archived` is given.
+Company, role, and note text is shown with control characters escaped, so stored
+text cannot rewrite the terminal.
 
 ### Updating
 
@@ -207,11 +225,13 @@ python3 applytrack.py export --archived > archived.csv
 ```
 
 `export` takes the same filters as `list`, uses the same order, and writes to
-standard output; errors go to stderr. The columns are `id`, `company`, `role`,
-`status`, `applied_on`, and `follow_up_on`. A missing follow-up is an empty cell,
-and an empty export still has its header. Company and role text that a spreadsheet
-would treat as a formula, such as text starting with `=`, `+`, `-`, or `@`, is
-written with a leading apostrophe; the stored value is unchanged. CSV files are ignored by Git.
+standard output; errors go to stderr. `export --search` includes applications
+found by their notes, though the notes themselves are not exported. The columns
+are `id`, `company`, `role`, `status`, `applied_on`, and `follow_up_on`. A missing
+follow-up is an empty cell, and an empty export still has its header. Company and
+role text that a spreadsheet would treat as a formula, such as text starting with
+`=`, `+`, `-`, or `@`, is written with a leading apostrophe; the stored value is
+unchanged. CSV files are ignored by Git.
 
 ### Importing from CSV
 
@@ -321,7 +341,7 @@ applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
-  notes.py            dated notes added by note and shown by notes
+  notes.py            dated notes added by note, shown by notes, and matched by --search
   stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
   backup.py           JSON backups of the whole database, and restoring them
@@ -371,12 +391,12 @@ Linting uses [Ruff](https://docs.astral.sh/ruff/), configured in `pyproject.toml
 Install it, for example in a virtual environment, and run `ruff check .`.
 
 The tests use temporary databases and cover persistence across connections,
-due-date boundaries, validation and rejected changes, search, CSV quoting and
-round trips, imports, deletion prompts, archiving, status history, notes, summary
-statistics, JSON backup round trips and rejected backups, ID reuse, and upgrading
-databases from earlier versions, including failed upgrades. GitHub Actions runs
-the tests on Python 3.10 and 3.14 and `ruff check` for pushes to `main` and for
-pull requests.
+due-date boundaries, validation and rejected changes, search of names, roles, and
+notes, CSV quoting and round trips, imports, deletion prompts, archiving, status
+history, notes, summary statistics, JSON backup round trips and rejected backups,
+ID reuse, and upgrading databases from earlier versions, including failed
+upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and `ruff check`
+for pushes to `main` and for pull requests.
 
 ## Limitations
 
@@ -392,7 +412,11 @@ pull requests.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
 - Notes are plain text with a date. A note cannot be edited or removed except by
-  deleting the application, and `--search` does not look inside notes.
+  deleting the application.
+- `--search` matches one literal piece of text, not several words in any order,
+  and does not look at statuses or dates, which have their own filters. It reads
+  every note on each search, which is fast for a personal job search but has no
+  full-text index.
 - `stats` has no end date or per-company breakdown, and its timing covers only
   responses recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
