@@ -7,6 +7,8 @@ import sqlite3
 from statistics import median
 import sys
 
+from .backup import restore_backup, save_backup, snapshot, write_backup
+from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
 from .notes import application_notes
@@ -178,6 +180,14 @@ def parser() -> argparse.ArgumentParser:
     notes = commands.add_parser("notes", help="Show an application's notes")
     notes.add_argument("id", type=int, help="Application ID")
 
+    backup = commands.add_parser("backup", help="Save everything, including history and notes, to a JSON file")
+    backup.add_argument("file", help="JSON file to write, or - for standard output")
+    backup.add_argument("--force", action="store_true", help="Replace the file if it already exists")
+
+    restoring = commands.add_parser("restore-backup", help="Load a JSON backup into an empty database")
+    restoring.add_argument("file", help="JSON file from backup, or - for standard input")
+    restoring.add_argument("--dry-run", action="store_true", help="Check the backup without saving anything")
+
     archive = commands.add_parser("archive", help="Hide an application from lists and exports")
     archive.add_argument("id", type=int, help="Application ID")
 
@@ -264,6 +274,27 @@ def _notes(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _backup(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    if args.file == "-":
+        write_backup(snapshot(connection), sys.stdout)
+        return 0
+    counts = save_backup(connection, Path(args.file), replace=args.force)
+    print(f"Backed up {counts} to {args.file}.")
+    return 0
+
+
+def _restore_backup(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    if args.file == "-":
+        records, last_id = read_backup(sys.stdin)
+    else:
+        with open(args.file, encoding="utf-8-sig") as source:
+            records, last_id = read_backup(source)
+    restore_backup(connection, records, last_id, dry_run=args.dry_run)
+    counts = record_counts(records)
+    print(f"Backup is valid: {counts} ready to restore." if args.dry_run else f"Restored {counts}.")
+    return 0
+
+
 def _archive(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     archive_application(connection, args.id)
     print(f"Archived application #{args.id}.")
@@ -296,6 +327,8 @@ COMMANDS = {
     "stats": _stats,
     "note": _note,
     "notes": _notes,
+    "backup": _backup,
+    "restore-backup": _restore_backup,
     "archive": _archive,
     "restore": _restore,
     "delete": _delete,
