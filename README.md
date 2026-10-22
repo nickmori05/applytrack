@@ -10,6 +10,7 @@ Python standard library.
 - Record applications with their submission and follow-up dates.
 - See what needs a follow-up today, filter by status, and search by company or role.
 - Keep a dated history of each application's status changes.
+- Keep dated notes on each application, such as who you spoke to and what comes next.
 - Summarize your search: statuses, response and interview rates, and how long
   employers take to respond.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
@@ -112,6 +113,30 @@ The history starts with the submission date. Applications saved before history
 was kept, or imported with a status other than `applied`, show that status with
 the date `unknown` until it next changes. Archiving does not change the history,
 and deleting an application deletes its history.
+
+### Notes
+
+```sh
+python3 applytrack.py note 1 "Recruiter call with Sam; take-home due Friday." --on 2026-09-03
+python3 applytrack.py note 1 "Sent the take-home."
+python3 applytrack.py notes 1
+```
+
+```text
+#1  Example Company — Software Engineer
+    2026-09-03  Recruiter call with Sam; take-home due Friday.
+    2026-09-05  Sent the take-home.
+```
+
+`note` adds a note to an application, dated today unless `--on` gives the day it
+is about. The date cannot be in the future but can be before the submission date,
+for example a conversation with a referrer. The text is trimmed and cannot be blank.
+`notes` shows an application's notes oldest first, with notes from the same day in
+the order they were added. A note spanning several lines keeps its line breaks,
+and control characters are escaped as in `list`.
+
+Archived applications can have notes added and shown. Deleting an application
+deletes its notes.
 
 ### Summary statistics
 
@@ -224,12 +249,12 @@ python3 applytrack.py --database .local/demo.sqlite3 add "Example Company" "Engi
 ```
 
 Databases created by earlier versions are upgraded automatically the first time
-they are opened, keeping every application and its ID. The status history starts
-empty, so a status set before the upgrade shows the date `unknown`. Each upgrade
-step runs in a single transaction, so if one fails the database is left as it was
-and the error is shown. Upgrading needs write access to the database file. SQLite
-records the highest saved ID during the upgrade; an ID above that, deleted before
-upgrading, can still be used once more.
+they are opened, keeping every application and its ID. The status history and
+notes start empty, so a status set before the upgrade shows the date `unknown`.
+Each upgrade step runs in a single transaction, so if one fails the database is
+left as it was and the error is shown. Upgrading needs write access to the
+database file. SQLite records the highest saved ID during the upgrade; an ID above
+that, deleted before upgrading, can still be used once more.
 
 ## Design
 
@@ -239,6 +264,7 @@ applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
+  notes.py            dated notes added by note and shown by notes
   stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
   cli.py              argument parsing, terminal output, and exit codes
@@ -247,8 +273,8 @@ tests/                unittest suite, one file per area
 ```
 
 - **SQLite:** durable local storage without running a server. One table holds
-  applications and a second their status changes. A shared or web version would
-  need a different storage and access design.
+  applications, and two more hold their status changes and notes. A shared or web
+  version would need a different storage and access design.
 - **Storage is separate from the interface:** `storage` and `csv_io` raise
   `ValueError` for invalid input and never print. `cli` turns errors into an
   `Error: ...` message on stderr with exit status 1.
@@ -263,8 +289,9 @@ tests/                unittest suite, one file per area
   to the same application, even after it is deleted.
 - **History is written with the status:** `update` takes the write lock, checks
   the new dates against the recorded history, and saves the status and its history
-  entry in one transaction. `delete` removes both together, so the history table
-  does not depend on SQLite foreign keys being enabled.
+  entry in one transaction. `delete` removes the application, its history, and its
+  notes in one transaction, so neither table depends on SQLite foreign keys being
+  enabled. A note is saved only if its application exists.
 - **Archiving is separate from status:** an `archived_on` date hides an
   application without changing its status, so restoring it brings back exactly
   what was saved.
@@ -282,7 +309,7 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search, CSV quoting and
-round trips, imports, deletion prompts, archiving, status history, summary
+round trips, imports, deletion prompts, archiving, status history, notes, summary
 statistics, ID reuse, and upgrading databases from earlier versions, including
 failed upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and
 `ruff check` for pushes to `main` and for pull requests.
@@ -293,9 +320,11 @@ failed upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and
   no notifications, and no web interface.
 - Importing does not merge rows into existing applications; it only adds or skips.
 - Deleted applications cannot be restored, and CSV exports do not record whether
-  an application is archived or its status history.
+  an application is archived, its status history, or its notes.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
+- Notes are plain text with a date. A note cannot be edited or removed except by
+  deleting the application, and `--search` does not look inside notes.
 - `stats` has no end date or per-company breakdown, and its timing covers only
   responses recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.

@@ -9,9 +9,11 @@ import sys
 
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
+from .notes import application_notes
 from .stats import Summary, summarize
 from .storage import (
     add_application,
+    add_note,
     archive_application,
     archived_count,
     connect,
@@ -35,6 +37,22 @@ def _terminal_text(value: str) -> str:
 
 def _summary(row: sqlite3.Row) -> str:
     return f"#{row['id']}  {_terminal_text(row['company'])} — {_terminal_text(row['role'])}"
+
+
+def note_lines(notes: list[sqlite3.Row]) -> list[str]:
+    """Return the indented lines ``notes ID`` prints below the application.
+
+    Each note follows its date, and later lines of a multi-line note line up under
+    its first line.
+    """
+    if not notes:
+        return ["    No notes yet. Add one with 'note'."]
+    lines = []
+    for note in notes:
+        first, *rest = (_terminal_text(line) for line in note["body"].replace("\r\n", "\n").split("\n"))
+        lines.append(f"    {note['noted_on']}  {first}")
+        lines.extend(f"    {'':10}  {line}".rstrip() for line in rest)
+    return lines
 
 
 def _confirmed(prompt: str) -> bool:
@@ -152,6 +170,14 @@ def parser() -> argparse.ArgumentParser:
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
 
+    note = commands.add_parser("note", help="Add a dated note to an application")
+    note.add_argument("id", type=int, help="Application ID")
+    note.add_argument("text", help="The note, such as who you spoke to and what comes next")
+    note.add_argument("--on", metavar="YYYY-MM-DD", help="Day the note is about (default: today)")
+
+    notes = commands.add_parser("notes", help="Show an application's notes")
+    notes.add_argument("id", type=int, help="Application ID")
+
     archive = commands.add_parser("archive", help="Hide an application from lists and exports")
     archive.add_argument("id", type=int, help="Application ID")
 
@@ -225,6 +251,19 @@ def _history(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    add_note(connection, args.id, args.text, args.on)
+    print(f"Added a note to application #{args.id}.")
+    return 0
+
+
+def _notes(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    row = get_application(connection, args.id)
+    print(_summary(row))
+    print("\n".join(note_lines(application_notes(connection, args.id))))
+    return 0
+
+
 def _archive(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     archive_application(connection, args.id)
     print(f"Archived application #{args.id}.")
@@ -255,6 +294,8 @@ COMMANDS = {
     "update": _update,
     "history": _history,
     "stats": _stats,
+    "note": _note,
+    "notes": _notes,
     "archive": _archive,
     "restore": _restore,
     "delete": _delete,
