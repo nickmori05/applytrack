@@ -15,6 +15,8 @@ Python standard library.
   employers take to respond.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
 - Export to CSV for a spreadsheet, and import from one.
+- Back up everything, including history, notes, and archive dates, to a JSON
+  file, and restore it into a new database.
 
 ## Quick start
 
@@ -191,7 +193,7 @@ archived, or restoring one that is not, is an error and changes nothing.
 
 `delete` shows the application and asks for confirmation. Only `y` or `yes`
 deletes it; any other answer, or no input, leaves it saved and exits with status 1.
-`--yes` skips the question for scripts. Deletion is permanent, so export a CSV
+`--yes` skips the question for scripts. Deletion is permanent, so run `backup`
 first if you may want the record back, and prefer archiving or the `rejected` and
 `withdrawn` statuses for applications that simply ended. A deleted application's
 ID is never given to another application.
@@ -238,11 +240,66 @@ Files are read as UTF-8, with or without the byte order mark some spreadsheet
 programs add. Use `-` as the file name to read standard input. The apostrophe that
 `export` adds to formula-like text is removed again.
 
+### Backing up and restoring
+
+```sh
+python3 applytrack.py backup applytrack-backup.json
+python3 applytrack.py --database .local/restored.sqlite3 restore-backup --dry-run applytrack-backup.json
+python3 applytrack.py --database .local/restored.sqlite3 restore-backup applytrack-backup.json
+```
+
+`backup` saves every application, active and archived, with its ID, dates,
+status history, and notes, to a JSON file. Unlike `export`, it takes no filters
+and loses nothing, so it is the way to keep a copy or move to another computer.
+The file is written next to its final name and then moved into place, so an
+interrupted backup never leaves a partial file, and on macOS and Linux it is
+readable only by you. An existing file is not replaced unless you pass `--force`.
+Use `-` as the file name to write to standard output. JSON files are ignored by Git.
+
+`restore-backup` loads a backup into a database with no applications, keeping
+every ID, so `history`, `notes`, `update`, and the other commands work on the same
+numbers as before. It never merges with or overwrites saved applications: restore
+into a new file with `--database`, or move the old database aside first. The whole
+file is checked before anything is saved, with the same rules as the other
+commands: valid statuses and `YYYY-MM-DD` dates, non-blank text, and a status
+history in date order that starts no earlier than the submission date. If any
+value is invalid, nothing is restored and the error names the application by its
+position in the file. Dates after today are accepted, since the backup may come
+from a computer whose calendar was already on the next day. `--dry-run` runs every
+check, including that the database is empty, without saving. Use `-` to read
+standard input.
+
+A backup also records the highest ID ever given out, so IDs deleted before the
+backup are not given to new applications after a restore. Files from a newer
+version of ApplyTrack are rejected rather than partly read. The format is
+indented UTF-8 JSON:
+
+```json
+{
+  "format": "applytrack-backup",
+  "version": 1,
+  "last_id": 1,
+  "applications": [
+    {
+      "id": 1,
+      "company": "Example Company",
+      "role": "Software Engineer",
+      "status": "interviewing",
+      "applied_on": "2026-09-01",
+      "follow_up_on": null,
+      "archived_on": null,
+      "status_history": [{"status": "interviewing", "changed_on": "2026-09-12"}],
+      "notes": [{"noted_on": "2026-09-03", "body": "Recruiter call with Sam."}]
+    }
+  ]
+}
+```
+
 ## Data
 
 The default database is `.local/applications.sqlite3` at the top of the checkout,
 whichever directory the command is run from; `.local/` is ignored by Git. Use
-`--database` for a separate one, for example to experiment:
+`--database` for a separate one, for example to experiment or to restore a backup:
 
 ```sh
 python3 applytrack.py --database .local/demo.sqlite3 add "Example Company" "Engineer"
@@ -267,6 +324,8 @@ applytrack/
   notes.py            dated notes added by note and shown by notes
   stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
+  backup.py           JSON backups of the whole database, and restoring them
+  backup_check.py     reading a backup and checking every value before a restore
   cli.py              argument parsing, terminal output, and exit codes
   __main__.py         python3 -m applytrack
 tests/                unittest suite, one file per area
@@ -292,6 +351,10 @@ tests/                unittest suite, one file per area
   entry in one transaction. `delete` removes the application, its history, and its
   notes in one transaction, so neither table depends on SQLite foreign keys being
   enabled. A note is saved only if its application exists.
+- **Backups restore only into an empty database:** a restore checks the whole
+  file first, then inserts every application with its ID, history, and notes in
+  one transaction and raises the ID counter to the backup's highest ID. Refusing
+  a non-empty database avoids having to decide how two sets of IDs should merge.
 - **Archiving is separate from status:** an `archived_on` date hides an
   application without changing its status, so restoring it brings back exactly
   what was saved.
@@ -310,17 +373,22 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search, CSV quoting and
 round trips, imports, deletion prompts, archiving, status history, notes, summary
-statistics, ID reuse, and upgrading databases from earlier versions, including
-failed upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and
-`ruff check` for pushes to `main` and for pull requests.
+statistics, JSON backup round trips and rejected backups, ID reuse, and upgrading
+databases from earlier versions, including failed upgrades. GitHub Actions runs
+the tests on Python 3.10 and 3.14 and `ruff check` for pushes to `main` and for
+pull requests.
 
 ## Limitations
 
 - One local database per checkout. There is no synchronization between devices,
   no notifications, and no web interface.
 - Importing does not merge rows into existing applications; it only adds or skips.
-- Deleted applications cannot be restored, and CSV exports do not record whether
-  an application is archived, its status history, or its notes.
+  A backup can be restored only into an empty database, not merged into one.
+- Deleted applications cannot be restored unless they are in a backup taken
+  before deleting them. CSV exports do not record whether an application is
+  archived, its status history, or its notes; use `backup` for those.
+- Backups are not scheduled or encrypted. Run `backup` yourself, and keep the
+  file somewhere private, since it holds every note.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
 - Notes are plain text with a date. A note cannot be edited or removed except by
