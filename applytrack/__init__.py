@@ -8,11 +8,14 @@ The package is split by concern:
 - ``notes``: the dated notes behind ``note`` and ``notes ID``.
 - ``stats``: the status, response, and timing summary behind ``stats``.
 - ``csv_io``: CSV export and import.
+- ``backup`` and ``backup_check``: JSON backups of everything, and restoring them.
 - ``cli``: argument parsing, terminal output, and exit codes.
 
 The names below are re-exported so callers can use ``import applytrack``.
 """
 
+from .backup import restore_backup, save_backup, snapshot, write_backup
+from .backup_check import Counts, Record, read_backup, record_counts
 from .cli import DEFAULT_DATABASE, display, main, note_lines, parser, summary_lines
 from .csv_io import EXPORT_COLUMNS, IMPORT_COLUMNS, export_csv, import_csv
 from .history import status_changes, timeline
@@ -34,11 +37,13 @@ from .validation import CLOSED_STATUSES, STATUSES, nonempty, submission_date, va
 
 __all__ = [
     "CLOSED_STATUSES",
+    "Counts",
     "DEFAULT_DATABASE",
     "EXPORT_COLUMNS",
     "IMPORT_COLUMNS",
     "INTERVIEW_STATUSES",
     "RESPONSE_STATUSES",
+    "Record",
     "STATUSES",
     "Summary",
     "add_application",
@@ -57,7 +62,12 @@ __all__ = [
     "nonempty",
     "note_lines",
     "parser",
+    "read_backup",
+    "record_counts",
     "restore_application",
+    "restore_backup",
+    "save_backup",
+    "snapshot",
     "status_changes",
     "submission_date",
     "summarize",
@@ -65,4 +75,5 @@ __all__ = [
     "timeline",
     "update_application",
     "validate_date",
+    "write_backup",
 ]
