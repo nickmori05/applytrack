@@ -152,7 +152,7 @@ def list_applications(
     only archived ones are. ``due_only`` keeps follow-ups on or before ``today``
     (default: the local date) that are not rejected or withdrawn, ordered by
     follow-up date; otherwise the newest application comes first. ``search``
-    matches company or role text, ignoring case.
+    matches company, role, or note text, ignoring case.
     """
     if status is not None:
         check_status(status)
@@ -160,8 +160,8 @@ def list_applications(
     values = []
     if search is not None:
         search = nonempty(search, "Search").casefold()
-        clauses.append("(instr(casefold(company), ?) > 0 OR instr(casefold(role), ?) > 0)")
-        values.extend((search, search))
+        clauses.append(f"(instr(casefold(company), ?) > 0 OR instr(casefold(role), ?) > 0 OR {notes.MATCHES})")
+        values.extend((search, search, search))
     if due_only:
         clauses.append("follow_up_on <= ? AND status NOT IN (?, ?)")
         values.extend(((today or date.today()).isoformat(), *CLOSED_STATUSES))

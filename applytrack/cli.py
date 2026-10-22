@@ -11,7 +11,7 @@ from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
-from .notes import application_notes
+from .notes import application_notes, matching_notes
 from .stats import Summary, summarize
 from .storage import (
     add_application,
@@ -57,6 +57,28 @@ def note_lines(notes: list[sqlite3.Row]) -> list[str]:
     return lines
 
 
+EXCERPT_WIDTH = 100
+
+
+def note_excerpt(body: str, search: str, width: int = EXCERPT_WIDTH) -> str:
+    """Return the line of a note that contains ``search``, shortened to about ``width`` characters.
+
+    Case is ignored as in ``--search``. A long line is cut to a window that starts
+    shortly before the match, with ``…`` marking each cut. If no single line holds
+    the match, for example because it spans a line break, the first line is used.
+    """
+    search = search.strip().casefold()
+    lines = body.replace("\r\n", "\n").split("\n")
+    line = next((line for line in lines if search in line.casefold()), lines[0])
+    if len(line) <= width:
+        return _terminal_text(line)
+    # Find where the match starts in the original text, which casefolding can lengthen.
+    start = next((index for index in range(len(line)) if line[index:].casefold().startswith(search)), 0)
+    start = max(0, min(start - width // 4, len(line) - width))
+    window = line[start:start + width]
+    return ("…" if start else "") + _terminal_text(window) + ("…" if start + width < len(line) else "")
+
+
 def _confirmed(prompt: str) -> bool:
     try:
         answer = input(prompt)
@@ -67,12 +89,13 @@ def _confirmed(prompt: str) -> bool:
 
 def display(
     rows: list[sqlite3.Row], due_only: bool, filtered: bool = False, *, archived: bool = False,
-    hidden: int = 0,
+    hidden: int = 0, notes: dict[int, list[sqlite3.Row]] | None = None, search: str | None = None,
 ) -> None:
     """Print applications for the terminal, or a message explaining an empty list.
 
     ``filtered``, ``due_only``, and ``archived`` describe the list that was asked
-    for; ``hidden`` is the number of archived applications left out of it.
+    for; ``hidden`` is the number of archived applications left out of it. With
+    ``search``, each application's ``notes`` that matched it are shown as excerpts.
     """
     if not rows:
         if filtered:
@@ -93,6 +116,9 @@ def display(
             f"    {row['status']} | Applied: {row['applied_on']}"
             f" | Follow up: {row['follow_up_on'] or 'not set'}{archived_on}"
         )
+        if notes and search is not None:
+            for note in notes.get(row["id"], []):
+                print(f"    Note {note['noted_on']}: {note_excerpt(note['body'], search)}")
 
 
 def _share(count: int, total: int) -> str:
@@ -141,13 +167,13 @@ def parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("list", help="Show saved applications")
     listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
     listing.add_argument("--status", choices=STATUSES)
-    listing.add_argument("--search", help="Find company or role text, ignoring case")
+    listing.add_argument("--search", help="Find company, role, or note text, ignoring case")
     listing.add_argument("--archived", action="store_true", help="Show archived applications instead")
 
     export = commands.add_parser("export", help="Write a CSV export to standard output")
     export.add_argument("--due", action="store_true", help="Only export follow-ups due today or earlier")
     export.add_argument("--status", choices=STATUSES)
-    export.add_argument("--search", help="Only export matching company or role text")
+    export.add_argument("--search", help="Only export applications with matching company, role, or note text")
     export.add_argument("--archived", action="store_true", help="Export archived applications instead")
 
     importing = commands.add_parser("import", help="Add applications from a CSV file")
@@ -212,7 +238,9 @@ def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
                              search=args.search, archived=args.archived)
     filtered = args.status is not None or args.search is not None
     hidden = 0 if rows or filtered or args.due or args.archived else archived_count(connection)
-    display(rows, args.due, filtered=filtered, archived=args.archived, hidden=hidden)
+    notes = matching_notes(connection, args.search) if rows and args.search is not None else None
+    display(rows, args.due, filtered=filtered, archived=args.archived, hidden=hidden,
+            notes=notes, search=args.search)
     return 0
 
 
