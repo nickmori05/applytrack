@@ -20,6 +20,7 @@ from .storage import (
     archived_count,
     connect,
     delete_application,
+    edit_note,
     get_application,
     list_applications,
     restore_application,
@@ -44,16 +45,17 @@ def _summary(row: sqlite3.Row) -> str:
 def note_lines(notes: list[sqlite3.Row]) -> list[str]:
     """Return the indented lines ``notes ID`` prints below the application.
 
-    Each note follows its date, and later lines of a multi-line note line up under
-    its first line.
+    Each note follows its number, used by ``edit-note``, and its date. Later lines
+    of a multi-line note line up under its first line.
     """
     if not notes:
         return ["    No notes yet. Add one with 'note'."]
+    width = len(str(len(notes)))
     lines = []
-    for note in notes:
+    for number, note in enumerate(notes, start=1):
         first, *rest = (_terminal_text(line) for line in note["body"].replace("\r\n", "\n").split("\n"))
-        lines.append(f"    {note['noted_on']}  {first}")
-        lines.extend(f"    {'':10}  {line}".rstrip() for line in rest)
+        lines.append(f"    {number:>{width}}  {note['noted_on']}  {first}")
+        lines.extend(f"    {'':{width}}  {'':10}  {line}".rstrip() for line in rest)
     return lines
 
 
@@ -206,6 +208,12 @@ def parser() -> argparse.ArgumentParser:
     notes = commands.add_parser("notes", help="Show an application's notes")
     notes.add_argument("id", type=int, help="Application ID")
 
+    edit = commands.add_parser("edit-note", help="Correct the text or date of a note")
+    edit.add_argument("id", type=int, help="Application ID")
+    edit.add_argument("number", type=int, help="Note number, as shown by notes")
+    edit.add_argument("--text", help="Replace the note's text")
+    edit.add_argument("--on", metavar="YYYY-MM-DD", help="Replace the day the note is about")
+
     backup = commands.add_parser("backup", help="Save everything, including history and notes, to a JSON file")
     backup.add_argument("file", help="JSON file to write, or - for standard output")
     backup.add_argument("--force", action="store_true", help="Replace the file if it already exists")
@@ -302,6 +310,13 @@ def _notes(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _edit_note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    number = edit_note(connection, args.id, args.number, args.text, args.on)
+    moved = f"; it is now note {number}" if number != args.number else ""
+    print(f"Updated note {args.number} of application #{args.id}{moved}.")
+    return 0
+
+
 def _backup(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     if args.file == "-":
         write_backup(snapshot(connection), sys.stdout)
@@ -355,6 +370,7 @@ COMMANDS = {
     "stats": _stats,
     "note": _note,
     "notes": _notes,
+    "edit-note": _edit_note,
     "backup": _backup,
     "restore-backup": _restore_backup,
     "archive": _archive,

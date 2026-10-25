@@ -11,7 +11,8 @@ Python standard library.
 - See what needs a follow-up today, filter by status, and search company, role,
   and note text.
 - Keep a dated history of each application's status changes.
-- Keep dated notes on each application, such as who you spoke to and what comes next.
+- Keep dated notes on each application, such as who you spoke to and what comes
+  next, and correct them later.
 - Summarize your search: statuses, response and interview rates, and how long
   employers take to respond.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
@@ -144,19 +145,32 @@ python3 applytrack.py notes 1
 
 ```text
 #1  Example Company — Software Engineer
-    2026-09-03  Recruiter call with Sam; take-home due Friday.
-    2026-09-05  Sent the take-home.
+    1  2026-09-03  Recruiter call with Sam; take-home due Friday.
+    2  2026-09-05  Sent the take-home.
 ```
 
 `note` adds a note to an application, dated today unless `--on` gives the day it
 is about. The date cannot be in the future but can be before the submission date,
 for example a conversation with a referrer. The text is trimmed and cannot be blank.
 `notes` shows an application's notes oldest first, with notes from the same day in
-the order they were added. A note spanning several lines keeps its line breaks,
-and control characters are escaped as in `list`.
+the order they were added, each with its number. A note spanning several lines
+keeps its line breaks, and control characters are escaped as in `list`.
 
-Archived applications can have notes added and shown. Deleting an application
-deletes its notes.
+```sh
+python3 applytrack.py edit-note 1 1 --text "Recruiter call with Sam Lee; take-home due Friday."
+python3 applytrack.py edit-note 1 2 --on 2026-09-04
+```
+
+`edit-note ID NUMBER` corrects a note's text, its date, or both, using the number
+`notes` shows. The new values follow the same rules as `note`, and an invalid edit
+changes nothing. Notes stay in date order, so a new date can move a note; `edit-note`
+says when it does, with the note's new number. Numbers belong to one application
+and are not stored, so they are the same after a backup is restored, but they can
+change when another note is added or moved. Run `notes` again before editing if
+you are unsure.
+
+Archived applications can have notes added, edited, and shown. Deleting an
+application deletes its notes.
 
 ### Summary statistics
 
@@ -341,7 +355,7 @@ applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
-  notes.py            dated notes added by note, shown by notes, and matched by --search
+  notes.py            dated notes: numbering, edits, and matching for --search
   stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
   backup.py           JSON backups of the whole database, and restoring them
@@ -393,7 +407,7 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search of names, roles, and
 notes, CSV quoting and round trips, imports, deletion prompts, archiving, status
-history, notes, summary statistics, JSON backup round trips and rejected backups,
+history, notes and their numbering and edits, summary statistics, JSON backup round trips and rejected backups,
 ID reuse, and upgrading databases from earlier versions, including failed
 upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and `ruff check`
 for pushes to `main` and for pull requests.
@@ -411,8 +425,8 @@ for pushes to `main` and for pull requests.
   file somewhere private, since it holds every note.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
-- Notes are plain text with a date. A note cannot be edited or removed except by
-  deleting the application.
+- Notes are plain text with a date. Editing a note replaces it without keeping the
+  earlier text, and a note cannot be removed except by deleting the application.
 - `--search` matches one literal piece of text, not several words in any order,
   and does not look at statuses or dates, which have their own filters. It reads
   every note on each search, which is fast for a personal job search but has no

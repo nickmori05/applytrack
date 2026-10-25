@@ -340,6 +340,48 @@ def add_note(
     return note_id
 
 
+def find_note(connection: sqlite3.Connection, application_id: int, number: int) -> sqlite3.Row:
+    """Return note ``number`` of an application, counting from 1 in the order ``notes ID`` shows.
+
+    Raises ValueError if the application or the note does not exist.
+    """
+    note = notes.numbered_note(connection, application_id, number)
+    if note is None:
+        get_application(connection, application_id)
+        raise ValueError(f"Application {application_id} has no note {number}.")
+    return note
+
+
+def edit_note(
+    connection: sqlite3.Connection,
+    application_id: int,
+    number: int,
+    body: str | None = None,
+    noted_on: str | None = None,
+) -> int:
+    """Replace the text, the date, or both of an application's note ``number``.
+
+    The values follow the rules of ``add_note``. Notes are ordered by date, so a
+    new date can move the note; its number afterwards is returned. Raises
+    ValueError if nothing is requested, a value is invalid, or the note does not exist.
+    """
+    if body is None and noted_on is None:
+        raise ValueError("Choose new note text, a new date, or both.")
+    if body is not None:
+        body = nonempty(body, "Note")
+    if noted_on is not None:
+        noted_on = past_date(noted_on, "Note date")
+    with connection:
+        # Take the write lock before finding the note, so the number still refers to it.
+        connection.execute("BEGIN IMMEDIATE")
+        note = find_note(connection, application_id, number)
+        connection.execute(
+            "UPDATE notes SET body = coalesce(?, body), noted_on = coalesce(?, noted_on) WHERE id = ?",
+            (body, noted_on, note["id"]),
+        )
+        return notes.note_number(connection, application_id, note["id"])
+
+
 def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
     """Permanently remove one application, its status history, and its notes.
 
