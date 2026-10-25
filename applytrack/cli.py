@@ -12,7 +12,7 @@ from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
 from .notes import application_notes, matching_notes
-from .stats import Summary, summarize
+from .stats import GROUPINGS, Summary, summarize, summarize_by
 from .storage import (
     add_application,
     add_note,
@@ -164,6 +164,37 @@ def summary_lines(summary: Summary, since: str | None = None, until: str | None 
     return lines
 
 
+BREAKDOWN_LABEL_WIDTH = 30
+
+
+def _shortened(label: str) -> str:
+    label = _terminal_text(label)
+    return label if len(label) <= BREAKDOWN_LABEL_WIDTH else label[:BREAKDOWN_LABEL_WIDTH - 1] + "…"
+
+
+def _count_share(count: int, total: int) -> str:
+    return f"{count} ({count / total:.0%})"
+
+
+def breakdown_lines(groups: list[tuple[str, Summary]], by: str) -> list[str]:
+    """Return the table ``stats --by`` prints: one row per group, with a header row.
+
+    Each row has the group's applications, responses, interviews, and median days
+    to a first response, or ``-`` when no response in the group has a date.
+    Labels longer than 30 characters are cut, ending in ``…``.
+    """
+    labels = [_shortened(label) for label, _ in groups]
+    width = max(len(by), *(len(label) for label in labels))
+    lines = [f"{by.capitalize():<{width}}  Applications  Responses  Interviews  Median days"]
+    for label, (_, summary) in zip(labels, groups, strict=True):
+        days = f"{median(summary.response_days):g}" if summary.response_days else "-"
+        lines.append(
+            f"{label:<{width}}  {summary.total:>12}  {_count_share(summary.responded, summary.total):>9}"
+            f"  {_count_share(summary.interviewed, summary.total):>10}  {days:>11}"
+        )
+    return lines
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the argument parser for every subcommand."""
     root = argparse.ArgumentParser(description="Track job applications and follow-up dates locally.")
@@ -208,6 +239,8 @@ def parser() -> argparse.ArgumentParser:
     stats = commands.add_parser("stats", help="Summarize statuses, responses, and time to respond")
     stats.add_argument("--since", metavar="YYYY-MM-DD", help="Only count applications submitted on or after this date")
     stats.add_argument("--until", metavar="YYYY-MM-DD", help="Only count applications submitted on or before this date")
+    stats.add_argument("--by", choices=tuple(GROUPINGS),
+                       help="Also break the summary down by company or by month of submission")
 
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
@@ -299,6 +332,9 @@ def _stats(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     summary = summarize(connection, since=args.since, until=args.until)
     if summary.total:
         print("\n".join(summary_lines(summary, args.since, args.until)))
+        if args.by:
+            print()
+            print("\n".join(breakdown_lines(summarize_by(connection, args.by, args.since, args.until), args.by)))
     elif args.since or args.until:
         print(f"No applications{_scope(args.since, args.until)}.")
     else:
