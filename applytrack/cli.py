@@ -20,7 +20,9 @@ from .storage import (
     archived_count,
     connect,
     delete_application,
+    delete_note,
     edit_note,
+    find_note,
     get_application,
     list_applications,
     restore_application,
@@ -42,17 +44,17 @@ def _summary(row: sqlite3.Row) -> str:
     return f"#{row['id']}  {_terminal_text(row['company'])} — {_terminal_text(row['role'])}"
 
 
-def note_lines(notes: list[sqlite3.Row]) -> list[str]:
+def note_lines(notes: list[sqlite3.Row], first_number: int = 1) -> list[str]:
     """Return the indented lines ``notes ID`` prints below the application.
 
-    Each note follows its number, used by ``edit-note``, and its date. Later lines
-    of a multi-line note line up under its first line.
+    Each note follows its number, counting from ``first_number``, and its date.
+    Later lines of a multi-line note line up under its first line.
     """
     if not notes:
         return ["    No notes yet. Add one with 'note'."]
-    width = len(str(len(notes)))
+    width = len(str(first_number + len(notes) - 1))
     lines = []
-    for number, note in enumerate(notes, start=1):
+    for number, note in enumerate(notes, start=first_number):
         first, *rest = (_terminal_text(line) for line in note["body"].replace("\r\n", "\n").split("\n"))
         lines.append(f"    {number:>{width}}  {note['noted_on']}  {first}")
         lines.extend(f"    {'':{width}}  {'':10}  {line}".rstrip() for line in rest)
@@ -214,6 +216,11 @@ def parser() -> argparse.ArgumentParser:
     edit.add_argument("--text", help="Replace the note's text")
     edit.add_argument("--on", metavar="YYYY-MM-DD", help="Replace the day the note is about")
 
+    delete_note = commands.add_parser("delete-note", help="Permanently remove a note")
+    delete_note.add_argument("id", type=int, help="Application ID")
+    delete_note.add_argument("number", type=int, help="Note number, as shown by notes")
+    delete_note.add_argument("--yes", action="store_true", help="Delete without asking for confirmation")
+
     backup = commands.add_parser("backup", help="Save everything, including history and notes, to a JSON file")
     backup.add_argument("file", help="JSON file to write, or - for standard output")
     backup.add_argument("--force", action="store_true", help="Replace the file if it already exists")
@@ -317,6 +324,19 @@ def _edit_note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _delete_note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    note = find_note(connection, args.id, args.number)
+    if not args.yes:
+        print(_summary(get_application(connection, args.id)))
+        print("\n".join(note_lines([note], args.number)))
+        if not _confirmed(f"Delete note {args.number}? [y/N] "):
+            print("Nothing deleted.", file=sys.stderr)
+            return 1
+    delete_note(connection, args.id, args.number, expected_id=note["id"])
+    print(f"Deleted note {args.number} of application #{args.id}.")
+    return 0
+
+
 def _backup(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     if args.file == "-":
         write_backup(snapshot(connection), sys.stdout)
@@ -371,6 +391,7 @@ COMMANDS = {
     "note": _note,
     "notes": _notes,
     "edit-note": _edit_note,
+    "delete-note": _delete_note,
     "backup": _backup,
     "restore-backup": _restore_backup,
     "archive": _archive,

@@ -5,7 +5,7 @@ The package is split by concern:
 - ``validation``: statuses and the date and text rules every entry point shares.
 - ``storage``: the SQLite schema, automatic upgrades, and record operations.
 - ``history``: the dated status changes behind ``history ID``.
-- ``notes``: the dated notes behind ``note``, ``notes ID``, and ``edit-note``.
+- ``notes``: the dated notes behind ``note``, ``notes ID``, ``edit-note``, and ``delete-note``.
 - ``stats``: the status, response, and timing summary behind ``stats``.
 - ``csv_io``: CSV export and import.
 - ``backup`` and ``backup_check``: JSON backups of everything, and restoring them.
@@ -28,6 +28,7 @@ from .storage import (
     archived_count,
     connect,
     delete_application,
+    delete_note,
     edit_note,
     find_note,
     get_application,
@@ -55,6 +56,7 @@ __all__ = [
     "archived_count",
     "connect",
     "delete_application",
+    "delete_note",
     "display",
     "edit_note",
     "export_csv",

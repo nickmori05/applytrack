@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import applytrack
 
@@ -14,6 +15,15 @@ def run_cli(database, *arguments):
     with redirect_stdout(output), redirect_stderr(errors):
         code = applytrack.main(["--database", str(database), *arguments])
     return code, output.getvalue(), errors.getvalue()
+
+
+def run_cli_answering(database, answer, *arguments):
+    if isinstance(answer, BaseException):
+        prompt = mock.patch("builtins.input", side_effect=answer)
+    else:
+        prompt = mock.patch("builtins.input", return_value=answer)
+    with prompt as asked:
+        return (*run_cli(database, *arguments), asked)
 
 
 class NoteNumberTests(unittest.TestCase):
@@ -150,6 +160,70 @@ class NoteNumberTests(unittest.TestCase):
                 self.assertEqual(applytrack.find_note(connection, self.identifier, number)["body"],
                                  applytrack.find_note(self.connection, self.identifier, number)["body"])
 
+
+    def test_delete_removes_one_note_and_renumbers_the_rest(self):
+        applytrack.delete_note(self.connection, self.identifier, 2)
+        self.assertEqual(self.notes(), [("2026-09-03", "Recruiter call with Sam."), ("2026-09-05", "Thank-you email.")])
+        self.assertEqual(applytrack.find_note(self.connection, self.identifier, 2)["body"], "Thank-you email.")
+        self.assertEqual(self.notes(self.other), [("2026-09-02", "Someone else's note.")])
+        applytrack.delete_note(self.connection, self.identifier, 1)
+        applytrack.delete_note(self.connection, self.identifier, 1)
+        self.assertEqual(self.notes(), [])
+        with self.assertRaisesRegex(ValueError, "Application 1 has no note 1."):
+            applytrack.delete_note(self.connection, self.identifier, 1)
+
+    def test_deleted_note_text_is_no_longer_found_by_search(self):
+        applytrack.delete_note(self.connection, self.identifier, 1)
+        self.assertEqual(applytrack.list_applications(self.connection, search="Sam"), [])
+
+    def test_delete_refuses_a_number_that_now_means_another_note(self):
+        shown = applytrack.find_note(self.connection, self.identifier, 1)
+        applytrack.add_note(self.connection, self.identifier, "Earlier note.", "2026-09-02")
+        with self.assertRaisesRegex(ValueError, "Note 1 of application 1 changed; run notes and try again."):
+            applytrack.delete_note(self.connection, self.identifier, 1, expected_id=shown["id"])
+        self.assertEqual(len(self.notes()), 4)
+        self.assertFalse(self.connection.in_transaction)
+        applytrack.delete_note(self.connection, self.identifier, 2, expected_id=shown["id"])
+        self.assertNotIn(("2026-09-03", "Recruiter call with Sam."), self.notes())
+
+    def test_delete_of_a_missing_note_or_application_changes_nothing(self):
+        for identifier, number, message in (
+            (self.identifier, 4, "Application 1 has no note 4."),
+            (self.identifier, 0, "Application 1 has no note 0."),
+            (999, 1, "Application 999 does not exist."),
+        ):
+            with self.subTest(identifier=identifier, number=number), self.assertRaisesRegex(ValueError, message):
+                applytrack.delete_note(self.connection, identifier, number)
+        self.assertEqual(len(self.notes()), 3)
+
+    def test_cli_asks_before_deleting_a_note(self):
+        applytrack.edit_note(self.connection, self.identifier, 2, "Take-home:\n- two hours")
+        code, output, errors, asked = run_cli_answering(self.database, "yes", "delete-note", "1", "2")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertEqual(output, (
+            "#1  Example — Engineer\n"
+            "    2  2026-09-05  Take-home:\n"
+            "                   - two hours\n"
+            "Deleted note 2 of application #1.\n"
+        ))
+        asked.assert_called_once_with("Delete note 2? [y/N] ")
+        self.assertEqual(len(self.notes()), 2)
+
+    def test_cli_keeps_the_note_unless_confirmed(self):
+        for answer in ("", "n", "no", "yess", EOFError()):
+            with self.subTest(answer=answer):
+                code, _, errors, _ = run_cli_answering(self.database, answer, "delete-note", "1", "1")
+                self.assertEqual((code, errors), (1, "Nothing deleted.\n"))
+        self.assertEqual(len(self.notes()), 3)
+
+    def test_cli_deletes_without_asking_with_yes(self):
+        code, output, errors, asked = run_cli_answering(self.database, None, "delete-note", "1", "3", "--yes")
+        self.assertEqual((code, output, errors), (0, "Deleted note 3 of application #1.\n", ""))
+        asked.assert_not_called()
+        self.assertEqual(run_cli(self.database, "delete-note", "1", "3", "--yes"),
+                         (1, "", "Error: Application 1 has no note 3.\n"))
+        self.assertEqual(run_cli(self.database, "delete-note", "999", "1"),
+                         (1, "", "Error: Application 999 does not exist.\n"))
 
 if __name__ == "__main__":
     unittest.main()

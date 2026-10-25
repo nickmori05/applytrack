@@ -382,6 +382,24 @@ def edit_note(
         return notes.note_number(connection, application_id, note["id"])
 
 
+def delete_note(
+    connection: sqlite3.Connection, application_id: int, number: int, *, expected_id: int | None = None
+) -> None:
+    """Permanently remove an application's note ``number``; later notes move up one number.
+
+    ``expected_id`` is the row ID of the note the caller showed for confirmation,
+    from ``find_note``. If the number now refers to a different note, for example
+    because another command added one, nothing is deleted. Raises ValueError if the
+    note does not exist or has changed.
+    """
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        note = find_note(connection, application_id, number)
+        if expected_id is not None and note["id"] != expected_id:
+            raise ValueError(f"Note {number} of application {application_id} changed; run notes and try again.")
+        connection.execute("DELETE FROM notes WHERE id = ?", (note["id"],))
+
+
 def delete_application(connection: sqlite3.Connection, application_id: int) -> None:
     """Permanently remove one application, its status history, and its notes.
 
