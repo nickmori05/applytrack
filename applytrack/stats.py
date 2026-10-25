@@ -43,14 +43,29 @@ def _changes_by_application(connection: sqlite3.Connection) -> dict[int, list[sq
     return changes
 
 
-def summarize(connection: sqlite3.Connection, since: str | None = None) -> Summary:
-    """Summarize every application, or those submitted on or after ``since`` (``YYYY-MM-DD``)."""
-    query = "SELECT * FROM applications"
+def _submitted_between(connection: sqlite3.Connection, since: str | None, until: str | None) -> list[sqlite3.Row]:
+    clauses = []
     values = []
     if since is not None:
-        query += " WHERE applied_on >= ?"
+        clauses.append("applied_on >= ?")
         values.append(validate_date(since))
-    applications = connection.execute(query, values).fetchall()
+    if until is not None:
+        clauses.append("applied_on <= ?")
+        values.append(validate_date(until))
+    if since is not None and until is not None and since > until:
+        raise ValueError(f"The start date ({since}) cannot be after the end date ({until}).")
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    return connection.execute("SELECT * FROM applications" + where, values).fetchall()
+
+
+def summarize(connection: sqlite3.Connection, since: str | None = None, until: str | None = None) -> Summary:
+    """Summarize every application, or those submitted between ``since`` and ``until``.
+
+    Both dates are ``YYYY-MM-DD``, inclusive, and optional. Responses are counted
+    whenever they happened, so an application submitted before ``until`` and
+    answered after it still counts as answered.
+    """
+    applications = _submitted_between(connection, since, until)
     changes = _changes_by_application(connection)
     by_status = dict.fromkeys(STATUSES, 0)
     responded = interviewed = 0

@@ -135,14 +135,23 @@ def _dated(days: tuple[int, ...], responded: int) -> str:
     return f"from {len(days)} of {responded} responses; the rest have no recorded date"
 
 
-def summary_lines(summary: Summary, since: str | None = None) -> list[str]:
+def _scope(since: str | None, until: str | None) -> str:
+    if since and until:
+        return f" submitted from {since} to {until}"
+    if since:
+        return f" submitted on or after {since}"
+    if until:
+        return f" submitted on or before {until}"
+    return ""
+
+
+def summary_lines(summary: Summary, since: str | None = None, until: str | None = None) -> list[str]:
     """Return the lines ``stats`` prints for a summary of at least one application.
 
-    ``since`` is the submission date the summary was limited to, if any.
+    ``since`` and ``until`` are the submission dates the summary was limited to, if any.
     """
     archived = f" ({summary.archived} archived)" if summary.archived else ""
-    scope = f" submitted on or after {since}" if since else ""
-    lines = [f"Applications{scope}: {summary.total}{archived}"]
+    lines = [f"Applications{_scope(since, until)}: {summary.total}{archived}"]
     lines.extend(f"    {status:<12}  {count}" for status, count in summary.by_status.items())
     lines.append(f"Responses: {_share(summary.responded, summary.total)}")
     lines.append(f"Interviews: {_share(summary.interviewed, summary.total)}")
@@ -198,6 +207,7 @@ def parser() -> argparse.ArgumentParser:
 
     stats = commands.add_parser("stats", help="Summarize statuses, responses, and time to respond")
     stats.add_argument("--since", metavar="YYYY-MM-DD", help="Only count applications submitted on or after this date")
+    stats.add_argument("--until", metavar="YYYY-MM-DD", help="Only count applications submitted on or before this date")
 
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
@@ -286,11 +296,11 @@ def _update(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _stats(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    summary = summarize(connection, since=args.since)
+    summary = summarize(connection, since=args.since, until=args.until)
     if summary.total:
-        print("\n".join(summary_lines(summary, args.since)))
-    elif args.since:
-        print(f"No applications submitted on or after {args.since}.")
+        print("\n".join(summary_lines(summary, args.since, args.until)))
+    elif args.since or args.until:
+        print(f"No applications{_scope(args.since, args.until)}.")
     else:
         print("No applications yet. Add your first with 'add'.")
     return 0

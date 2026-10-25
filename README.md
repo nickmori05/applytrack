@@ -183,6 +183,7 @@ application deletes its notes.
 ```sh
 python3 applytrack.py stats
 python3 applytrack.py stats --since 2026-09-01
+python3 applytrack.py stats --since 2026-09-01 --until 2026-09-30
 ```
 
 ```text
@@ -198,8 +199,12 @@ Days to first response: median 12, fastest 3, slowest 21 (from 2 responses)
 ```
 
 `stats` counts every application, archived ones included, since archiving tidies
-lists but does not change what happened. `--since` counts only applications
-submitted on or after a date.
+lists but does not change what happened. `--since` and `--until` count only
+applications submitted on or after and on or before a date; both days are
+included, and they can be combined to look at one week or month. The range picks
+applications by submission date only: a response that arrived after `--until`
+still counts, so an earlier period is not made to look quieter than it was. A
+`--since` after `--until` is an error.
 
 An application has a response once it reaches `interviewing`, `offer`, or
 `rejected`, and an interview once it reaches `interviewing` or `offer`. These come
@@ -437,8 +442,8 @@ for pushes to `main` and for pull requests.
   and does not look at statuses or dates, which have their own filters. It reads
   every note on each search, which is fast for a personal job search but has no
   full-text index.
-- `stats` has no end date or per-company breakdown, and its timing covers only
-  responses recorded with a date.
+- `stats` has no per-company breakdown, and its timing covers only responses
+  recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
   The default database location assumes a checkout, so pass `--database` if you
   install it with `pip`.
