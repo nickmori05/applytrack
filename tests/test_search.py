@@ -18,7 +18,7 @@ class SearchTests(unittest.TestCase):
         self.addCleanup(self.connection.close)
 
     def add(self, company, role='Engineer', deadline=None, status='applied'):
-        identifier = applytrack.add_application(self.connection, company, role, deadline)
+        identifier = applytrack.add_application(self.connection, company, role, deadline, applied_on='2026-09-01')
         applytrack.update_application(self.connection, identifier, status=status)
         return identifier
 

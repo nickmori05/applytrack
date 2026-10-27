@@ -47,8 +47,8 @@ class ArchiveTests(unittest.TestCase):
         return code, output.getvalue(), errors.getvalue()
 
     def test_archived_application_is_hidden_until_restored_and_survives_reopening(self):
-        keep = applytrack.add_application(self.connection, "Keep", "Engineer", "2026-09-01")
-        hide = applytrack.add_application(self.connection, "Hide", "Engineer", "2026-09-01")
+        keep = applytrack.add_application(self.connection, "Keep", "Engineer", "2026-09-01", applied_on="2026-09-01")
+        hide = applytrack.add_application(self.connection, "Hide", "Engineer", "2026-09-01", applied_on="2026-09-01")
         original = dict(applytrack.get_application(self.connection, hide))
         applytrack.archive_application(self.connection, hide, today=date(2026, 9, 9))
         reopened = applytrack.connect(self.database)
@@ -65,10 +65,12 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(self.ids(archived=True), [])
 
     def test_archived_list_combines_with_other_filters(self):
-        backend = applytrack.add_application(self.connection, "Backend Labs", "Engineer", "2026-09-01")
+        backend = applytrack.add_application(self.connection, "Backend Labs", "Engineer", "2026-09-01",
+                                             applied_on="2026-09-01")
         applytrack.update_application(self.connection, backend, status="interviewing")
         other = applytrack.add_application(self.connection, "Other", "Designer")
-        active = applytrack.add_application(self.connection, "Backend Active", "Engineer", "2026-09-01")
+        active = applytrack.add_application(self.connection, "Backend Active", "Engineer", "2026-09-01",
+                                            applied_on="2026-09-01")
         for identifier in (backend, other):
             applytrack.archive_application(self.connection, identifier)
         self.assertEqual(self.ids(archived=True), [other, backend])
