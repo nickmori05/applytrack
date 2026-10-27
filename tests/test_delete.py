@@ -32,7 +32,8 @@ class DeleteTests(unittest.TestCase):
 
     def test_delete_removes_only_that_application_and_survives_reopening(self):
         first = applytrack.add_application(self.connection, "First", "Engineer")
-        second = applytrack.add_application(self.connection, "Second", "Engineer", "2026-09-10")
+        second = applytrack.add_application(self.connection, "Second", "Engineer", "2026-09-10",
+                                            applied_on="2026-09-01")
         third = applytrack.add_application(self.connection, "Third", "Engineer")
         applytrack.delete_application(self.connection, second)
         reopened = applytrack.connect(self.database)
@@ -84,7 +85,8 @@ class DeleteTests(unittest.TestCase):
                 self.assertNotIn(identifier, self.ids())
 
     def test_cli_declined_or_closed_confirmation_keeps_the_application(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         original = dict(applytrack.get_application(self.connection, identifier))
         for answer in ("", "n", "no", "maybe", EOFError()):
             with self.subTest(answer=answer):

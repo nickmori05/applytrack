@@ -49,9 +49,11 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), ",".join(applytrack.EXPORT_COLUMNS) + "\n")
 
     def test_status_filter_combines_with_due_dates_and_closed_exclusion(self):
-        interviewing = applytrack.add_application(self.connection, "Interview", "Engineer", "2026-09-09")
-        rejected = applytrack.add_application(self.connection, "Closed", "Engineer", "2026-09-08")
-        applytrack.add_application(self.connection, "Applied", "Engineer", "2026-09-09")
+        interviewing = applytrack.add_application(self.connection, "Interview", "Engineer", "2026-09-09",
+                                                  applied_on="2026-09-01")
+        rejected = applytrack.add_application(self.connection, "Closed", "Engineer", "2026-09-08",
+                                              applied_on="2026-09-01")
+        applytrack.add_application(self.connection, "Applied", "Engineer", "2026-09-09", applied_on="2026-09-01")
         applytrack.update_application(self.connection, interviewing, status="interviewing")
         applytrack.update_application(self.connection, rejected, status="rejected")
         rows = self.export(due_only=True, today=date(2026, 9, 9), status="interviewing")
