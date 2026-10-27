@@ -11,7 +11,7 @@ from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
-from .notes import application_notes, matching_notes
+from .notes import application_notes, delete_note, edit_note, get_note, matching_notes
 from .stats import Summary, summarize
 from .storage import (
     add_application,
@@ -44,16 +44,17 @@ def _summary(row: sqlite3.Row) -> str:
 def note_lines(notes: list[sqlite3.Row]) -> list[str]:
     """Return the indented lines ``notes ID`` prints below the application.
 
-    Each note follows its date, and later lines of a multi-line note line up under
-    its first line.
+    Each note follows its ID, used by ``edit-note`` and ``delete-note``, and its
+    date. Later lines of a multi-line note line up under its first line.
     """
     if not notes:
         return ["    No notes yet. Add one with 'note'."]
+    width = max(len(f"Note {note['id']}") for note in notes)
     lines = []
     for note in notes:
         first, *rest = (_terminal_text(line) for line in note["body"].replace("\r\n", "\n").split("\n"))
-        lines.append(f"    {note['noted_on']}  {first}")
-        lines.extend(f"    {'':10}  {line}".rstrip() for line in rest)
+        lines.append(f"    {'Note ' + str(note['id']):<{width}}  {note['noted_on']}  {first}")
+        lines.extend(f"    {'':{width + 12}}  {line}".rstrip() for line in rest)
     return lines
 
 
@@ -206,6 +207,15 @@ def parser() -> argparse.ArgumentParser:
     notes = commands.add_parser("notes", help="Show an application's notes")
     notes.add_argument("id", type=int, help="Application ID")
 
+    editing = commands.add_parser("edit-note", help="Correct a note's text or date")
+    editing.add_argument("id", type=int, help="Note ID, as shown by 'notes'")
+    editing.add_argument("--text", help="Replace the note's text")
+    editing.add_argument("--on", metavar="YYYY-MM-DD", help="Change the day the note is about")
+
+    removing = commands.add_parser("delete-note", help="Permanently remove one note")
+    removing.add_argument("id", type=int, help="Note ID, as shown by 'notes'")
+    removing.add_argument("--yes", action="store_true", help="Delete without asking for confirmation")
+
     backup = commands.add_parser("backup", help="Save everything, including history and notes, to a JSON file")
     backup.add_argument("file", help="JSON file to write, or - for standard output")
     backup.add_argument("--force", action="store_true", help="Replace the file if it already exists")
@@ -290,8 +300,8 @@ def _history(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    add_note(connection, args.id, args.text, args.on)
-    print(f"Added a note to application #{args.id}.")
+    note_id = add_note(connection, args.id, args.text, args.on)
+    print(f"Added note {note_id} to application #{args.id}.")
     return 0
 
 
@@ -299,6 +309,25 @@ def _notes(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     row = get_application(connection, args.id)
     print(_summary(row))
     print("\n".join(note_lines(application_notes(connection, args.id))))
+    return 0
+
+
+def _edit_note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    edit_note(connection, args.id, args.text, args.on)
+    print(f"Updated note {args.id}.")
+    return 0
+
+
+def _delete_note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    note = get_note(connection, args.id)
+    if not args.yes:
+        print(_summary(get_application(connection, note["application_id"])))
+        print("\n".join(note_lines([note])))
+        if not _confirmed(f"Delete note {args.id}? [y/N] "):
+            print("Nothing deleted.", file=sys.stderr)
+            return 1
+    delete_note(connection, args.id)
+    print(f"Deleted note {args.id} from application #{note['application_id']}.")
     return 0
 
 
@@ -355,6 +384,8 @@ COMMANDS = {
     "stats": _stats,
     "note": _note,
     "notes": _notes,
+    "edit-note": _edit_note,
+    "delete-note": _delete_note,
     "backup": _backup,
     "restore-backup": _restore_backup,
     "archive": _archive,

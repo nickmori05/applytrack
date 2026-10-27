@@ -257,7 +257,7 @@ class BackupCommandTests(unittest.TestCase):
         self.assertEqual(run_cli(restored, "restore-backup", str(path)),
                          (0, "Restored 1 application, 1 status change, and 1 note.\n", ""))
         self.assertEqual(run_cli(restored, "notes", "1")[1],
-                         "#1  Example — Engineer\n    2026-09-03  Recruiter call with Sam.\n")
+                         "#1  Example — Engineer\n    Note 1  2026-09-03  Recruiter call with Sam.\n")
         self.assertEqual(run_cli(restored, "history", "1")[1],
                          "#1  Example — Engineer\n    2026-09-01  applied\n    2026-09-10  interviewing\n")
         self.assertIn("Archived: ", run_cli(restored, "list", "--archived")[1])
