@@ -11,7 +11,8 @@ Python standard library.
 - See what needs a follow-up today, filter by status, and search company, role,
   and note text.
 - Keep a dated history of each application's status changes.
-- Keep dated notes on each application, such as who you spoke to and what comes next.
+- Keep dated notes on each application, such as who you spoke to and what comes
+  next, and correct or remove them later.
 - Summarize your search: statuses, response and interview rates, and how long
   employers take to respond.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
@@ -144,8 +145,8 @@ python3 applytrack.py notes 1
 
 ```text
 #1  Example Company — Software Engineer
-    2026-09-03  Recruiter call with Sam; take-home due Friday.
-    2026-09-05  Sent the take-home.
+    Note 1  2026-09-03  Recruiter call with Sam; take-home due Friday.
+    Note 2  2026-09-05  Sent the take-home.
 ```
 
 `note` adds a note to an application, dated today unless `--on` gives the day it
@@ -155,8 +156,25 @@ for example a conversation with a referrer. The text is trimmed and cannot be bl
 the order they were added. A note spanning several lines keeps its line breaks,
 and control characters are escaped as in `list`.
 
-Archived applications can have notes added and shown. Deleting an application
-deletes its notes.
+Each note has an ID, printed by `note` and shown by `notes`, that is never given
+to another note, even after it is deleted.
+
+```sh
+python3 applytrack.py edit-note 1 --text "Recruiter call with Sam Lee; take-home due Friday."
+python3 applytrack.py edit-note 2 --on 2026-09-06
+python3 applytrack.py delete-note 2
+python3 applytrack.py delete-note 2 --yes
+```
+
+`edit-note` replaces a note's text, its date, or both, following the same rules as
+`note`; if either value is invalid, nothing changes. The note keeps its ID and
+application, and a new date moves it to its place in `notes`. `delete-note` shows
+the note and asks for confirmation the same way `delete` does, and `--yes` skips
+the question. Deleting a note leaves its application and other notes alone, and
+`--search` and `backup` see only the current text.
+
+Archived applications can have notes added, shown, edited, and deleted. Deleting
+an application deletes its notes.
 
 ### Summary statistics
 
@@ -277,11 +295,13 @@ readable only by you. An existing file is not replaced unless you pass `--force`
 Use `-` as the file name to write to standard output. JSON files are ignored by Git.
 
 `restore-backup` loads a backup into a database with no applications, keeping
-every ID, so `history`, `notes`, `update`, and the other commands work on the same
-numbers as before. It never merges with or overwrites saved applications: restore
-into a new file with `--database`, or move the old database aside first. The whole
-file is checked before anything is saved, with the same rules as the other
-commands: valid statuses and `YYYY-MM-DD` dates, non-blank text, and a status
+every application ID, so `history`, `notes`, `update`, and the other commands work
+on the same numbers as before. Note IDs are not in the backup, so restored notes
+are numbered again; check `notes ID` before using `edit-note` or `delete-note` on
+a restored database. It never merges with or overwrites saved applications:
+restore into a new file with `--database`, or move the old database aside first.
+The whole file is checked before anything is saved, with the same rules as the
+other commands: valid statuses and `YYYY-MM-DD` dates, non-blank text, and a status
 history in date order that starts no earlier than the submission date. If any
 value is invalid, nothing is restored and the error names the application by its
 position in the file. Dates after today are accepted, since the backup may come
@@ -341,7 +361,7 @@ applytrack/
   validation.py       statuses and the date and text rules shared by every command
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
-  notes.py            dated notes added by note, shown by notes, and matched by --search
+  notes.py            dated notes: added, shown, edited, deleted, and matched by --search
   stats.py            the status, response, and timing summary shown by stats
   csv_io.py           CSV export and import
   backup.py           JSON backups of the whole database, and restoring them
@@ -370,7 +390,9 @@ tests/                unittest suite, one file per area
   the new dates against the recorded history, and saves the status and its history
   entry in one transaction. `delete` removes the application, its history, and its
   notes in one transaction, so neither table depends on SQLite foreign keys being
-  enabled. A note is saved only if its application exists.
+  enabled. A note is saved only if its application exists. Notes, like
+  applications, use `AUTOINCREMENT` IDs, so `edit-note` and `delete-note` never
+  reach a later note by mistake.
 - **Backups restore only into an empty database:** a restore checks the whole
   file first, then inserts every application with its ID, history, and notes in
   one transaction and raises the ID counter to the backup's highest ID. Refusing
@@ -393,10 +415,10 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search of names, roles, and
 notes, CSV quoting and round trips, imports, deletion prompts, archiving, status
-history, notes, summary statistics, JSON backup round trips and rejected backups,
-ID reuse, and upgrading databases from earlier versions, including failed
-upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and `ruff check`
-for pushes to `main` and for pull requests.
+history, notes and their edits and deletions, summary statistics, JSON backup round
+trips and rejected backups, ID reuse, and upgrading databases from earlier
+versions, including failed upgrades. GitHub Actions runs the tests on Python 3.10
+and 3.14 and `ruff check` for pushes to `main` and for pull requests.
 
 ## Limitations
 
@@ -411,8 +433,10 @@ for pushes to `main` and for pull requests.
   file somewhere private, since it holds every note.
 - Status history records days, not times, and only changes made with `update`.
   A recorded change cannot be edited or removed except by deleting the application.
-- Notes are plain text with a date. A note cannot be edited or removed except by
-  deleting the application.
+- Notes are plain text with a date. Editing replaces a note's text without keeping
+  the earlier version, a deleted note is gone unless an earlier backup holds it,
+  and a note cannot be moved to a different application. `list --search` shows
+  matching notes without their IDs; use `notes ID` to find the one to change.
 - `--search` matches one literal piece of text, not several words in any order,
   and does not look at statuses or dates, which have their own filters. It reads
   every note on each search, which is fast for a personal job search but has no
