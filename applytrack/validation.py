@@ -47,6 +47,16 @@ def submission_date(value: str | None) -> str:
     return date.today().isoformat() if value is None else past_date(value, "Submission date")
 
 
+def check_follow_up(follow_up_on: str | None, applied_on: str) -> str | None:
+    """Return ``follow_up_on`` if it is unset or no earlier than ``applied_on``.
+
+    Both dates must already be validated. A follow-up on the submission day is allowed.
+    """
+    if follow_up_on is not None and follow_up_on < applied_on:
+        raise ValueError(f"Follow-up date cannot be before the submission date ({applied_on}).")
+    return follow_up_on
+
+
 def check_status(status: str) -> str:
     """Return ``status`` if it is one of STATUSES, or raise ValueError."""
     if status not in STATUSES:

@@ -10,7 +10,15 @@ from pathlib import Path
 import sqlite3
 
 from . import history, notes
-from .validation import CLOSED_STATUSES, check_status, nonempty, past_date, submission_date, validate_date
+from .validation import (
+    CLOSED_STATUSES,
+    check_follow_up,
+    check_status,
+    nonempty,
+    past_date,
+    submission_date,
+    validate_date,
+)
 
 
 def _create_table(connection: sqlite3.Connection, name: str) -> None:
@@ -120,14 +128,15 @@ def add_application(
 ) -> int:
     """Save a new application and return its ID.
 
-    ``applied_on`` defaults to today and cannot be in the future. Dates use
-    ``YYYY-MM-DD``; company and role are trimmed and must not be blank.
+    ``applied_on`` defaults to today and cannot be in the future, and
+    ``follow_up_on`` cannot be before it. Dates use ``YYYY-MM-DD``; company and
+    role are trimmed and must not be blank.
     """
     company = nonempty(company, "Company")
     role = nonempty(role, "Role")
     applied_on = submission_date(applied_on)
     if follow_up_on is not None:
-        follow_up_on = validate_date(follow_up_on)
+        follow_up_on = check_follow_up(validate_date(follow_up_on), applied_on)
     with connection:
         cursor = connection.execute(
             """INSERT INTO applications (company, role, applied_on, follow_up_on)
@@ -193,7 +202,9 @@ def update_application(
     A new status is added to the application's history, dated ``changed_on`` or
     ``today`` (default: the local date). That date cannot be in the future,
     before the submission date, or before the last recorded change, and the
-    submission date cannot move after the first recorded change.
+    submission date cannot move after the first recorded change. When either the
+    submission or follow-up date changes, the follow-up cannot end up before the
+    submission date; other changes leave dates saved before that rule alone.
 
     Every value is validated before anything is written, so an invalid change
     rejects the whole update. Raises ValueError if nothing is requested, if a
@@ -241,10 +252,30 @@ def update_application(
     with connection:
         # Take the write lock before reading, so the checks still hold when writing.
         connection.execute("BEGIN IMMEDIATE")
+        _check_follow_up_change(connection, application_id, applied_on, follow_up_on, clear_follow_up)
         changed_on = _status_change_date(connection, application_id, status, applied_on, changed_on, today)
         connection.execute(f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values)
         if changed_on is not None:
             history.record_change(connection, application_id, status, changed_on)
+
+
+def _check_follow_up_change(
+    connection: sqlite3.Connection,
+    application_id: int,
+    applied_on: str | None,
+    follow_up_on: str | None,
+    clear_follow_up: bool,
+) -> None:
+    # Only a change to either date is checked, so an application saved before the
+    # follow-up rule existed can still have its status or names updated.
+    if applied_on is None and follow_up_on is None:
+        return
+    current = get_application(connection, application_id)
+    if follow_up_on is not None:
+        check_follow_up(follow_up_on, applied_on or current["applied_on"])
+    elif not clear_follow_up and current["follow_up_on"] is not None and applied_on > current["follow_up_on"]:
+        raise ValueError(f"Submission date cannot be after the follow-up date ({current['follow_up_on']}). "
+                         "Change or clear the follow-up as well.")
 
 
 def _status_change_date(

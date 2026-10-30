@@ -5,7 +5,7 @@ import sqlite3
 from typing import TextIO
 
 from .storage import insert_applications, saved_keys
-from .validation import check_status, nonempty, submission_date, validate_date
+from .validation import check_follow_up, check_status, nonempty, submission_date, validate_date
 
 EXPORT_COLUMNS = ("id", "company", "role", "status", "applied_on", "follow_up_on")
 IMPORT_COLUMNS = ("company", "role", "status", "applied_on", "follow_up_on")
@@ -44,12 +44,14 @@ def _import_row(row: dict) -> tuple:
         raise ValueError("Row has more values than columns.")
     values = {column: (row.get(column) or "").strip() for column in IMPORT_COLUMNS}
     status = check_status(values["status"] or "applied")
+    applied_on = submission_date(values["applied_on"] or None)
+    follow_up_on = validate_date(values["follow_up_on"]) if values["follow_up_on"] else None
     return (
         _unescape_spreadsheet_text(nonempty(values["company"], "Company")),
         _unescape_spreadsheet_text(nonempty(values["role"], "Role")),
         status,
-        submission_date(values["applied_on"] or None),
-        validate_date(values["follow_up_on"]) if values["follow_up_on"] else None,
+        applied_on,
+        check_follow_up(follow_up_on, applied_on),
     )
 
 
