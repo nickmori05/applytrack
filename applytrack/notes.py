@@ -6,7 +6,10 @@ same transaction as the application.
 """
 
 from collections import defaultdict
+from collections.abc import Sequence
 import sqlite3
+
+from .validation import search_terms
 
 # An SQL condition, used by storage.list_applications, that is true when one of
 # the application's notes contains the casefolded search text bound to it.
@@ -63,17 +66,19 @@ def application_notes(connection: sqlite3.Connection, application_id: int) -> li
     ).fetchall()
 
 
-def matching_notes(connection: sqlite3.Connection, search: str) -> dict[int, list[sqlite3.Row]]:
-    """Return the notes containing ``search``, ignoring case, grouped by application.
+def matching_notes(connection: sqlite3.Connection, search: str | Sequence[str]) -> dict[int, list[sqlite3.Row]]:
+    """Return the notes containing ``search``, or any of several terms, ignoring case, grouped by application.
 
-    Surrounding whitespace in ``search`` is ignored, as in
-    ``storage.list_applications``. Each application's notes are oldest first.
+    Terms are checked as in ``storage.list_applications``. Each application's
+    notes are oldest first.
     """
+    terms = search_terms(search)
     matches = defaultdict(list)
     rows = connection.execute(
-        "SELECT id, application_id, noted_on, body FROM notes WHERE instr(casefold(body), ?) > 0"
-        " ORDER BY application_id, noted_on, id",
-        (search.strip().casefold(),),
+        "SELECT id, application_id, noted_on, body FROM notes WHERE "
+        + " OR ".join(["instr(casefold(body), ?) > 0"] * len(terms))
+        + " ORDER BY application_id, noted_on, id",
+        terms,
     )
     for row in rows:
         matches[row["application_id"]].append(row)

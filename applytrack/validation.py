@@ -1,5 +1,6 @@
 """Validation rules shared by the command line, storage, and CSV import."""
 
+from collections.abc import Sequence
 from datetime import date
 
 STATUSES = ("applied", "interviewing", "offer", "rejected", "withdrawn")
@@ -27,6 +28,18 @@ def nonempty(value: str, label: str) -> str:
     if not value:
         raise ValueError(f"{label} cannot be empty.")
     return value
+
+
+def search_terms(value: str | Sequence[str], label: str = "Search") -> tuple[str, ...]:
+    """Return each search term trimmed and casefolded, as ``--search`` compares them.
+
+    ``value`` is one term or several. Raises ValueError, naming ``label``, if any
+    term is blank or no term is given.
+    """
+    terms = (value,) if isinstance(value, str) else tuple(value)
+    if not terms:
+        raise ValueError(f"{label} cannot be empty.")
+    return tuple(nonempty(term, label).casefold() for term in terms)
 
 
 def past_date(value: str, label: str) -> str:

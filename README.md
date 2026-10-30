@@ -63,6 +63,7 @@ python3 applytrack.py list --due
 python3 applytrack.py list --status interviewing
 python3 applytrack.py list --search "backend"
 python3 applytrack.py list --search "sam"
+python3 applytrack.py list --search "backend" --search "remote"
 ```
 
 `list` shows the newest application first. `--due` shows follow-ups due today or
@@ -78,8 +79,15 @@ detail you wrote down. It ignores case, including Unicode case differences
 `Montréal`). `%`, `_`, quotes, and backslashes are ordinary text, not patterns, and
 a blank search is rejected.
 
+Give `--search` more than once to find applications that contain every term, in
+any order. Each term can match on its own, in the company, the role, or any note,
+so `--search backend --search remote` finds a backend role whose notes mention
+working remotely. A phrase with spaces in one `--search` is still matched as
+written.
+
 `list --search` shows each matching note's date and the line that matched below
-its application, so you can see why it was found:
+its application, so you can see why it was found. With several terms, a note is
+shown if it contains any of them, around the first one it contains:
 
 ```text
 #1  Example Company — Software Engineer
@@ -456,10 +464,10 @@ requests.
   replaced.
 - Notes are plain text with a date. A note cannot be edited or removed except by
   deleting the application.
-- `--search` matches one literal piece of text, not several words in any order,
-  and does not look at statuses or dates, which have their own filters. It reads
-  every note on each search, which is fast for a personal job search but has no
-  full-text index.
+- `--search` matches literal text, not word stems or spelling variants, and
+  several terms all have to match; there is no "either" search. It does not look
+  at statuses or dates, which have their own filters. It reads every note on each
+  search, which is fast for a personal job search but has no full-text index.
 - `stats` has no end date or per-company breakdown, and its timing covers only
   responses recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
