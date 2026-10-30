@@ -82,6 +82,20 @@ def delete_changes(connection: sqlite3.Connection, application_id: int) -> None:
     connection.execute("DELETE FROM status_changes WHERE application_id = ?", (application_id,))
 
 
+def latest_changes(connection: sqlite3.Connection, application_id: int) -> list[sqlite3.Row]:
+    """Return an application's last two recorded changes, newest first."""
+    return connection.execute(
+        "SELECT id, status, changed_on, previous_status FROM status_changes WHERE application_id = ?"
+        " ORDER BY changed_on DESC, id DESC LIMIT 2",
+        (application_id,),
+    ).fetchall()
+
+
+def remove_change(connection: sqlite3.Connection, change_id: int) -> None:
+    """Remove one recorded change by its row ID. The caller provides the transaction."""
+    connection.execute("DELETE FROM status_changes WHERE id = ?", (change_id,))
+
+
 def status_changes(connection: sqlite3.Connection, application_id: int) -> list[sqlite3.Row]:
     """Return an application's recorded changes, oldest first."""
     return connection.execute(
