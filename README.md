@@ -63,6 +63,8 @@ python3 applytrack.py list --due
 python3 applytrack.py list --status interviewing
 python3 applytrack.py list --search "backend"
 python3 applytrack.py list --search "sam"
+python3 applytrack.py list --search "backend" --search "remote"
+python3 applytrack.py list --search "backend" --exclude "contract"
 ```
 
 `list` shows the newest application first. `--due` shows follow-ups due today or
@@ -78,8 +80,21 @@ detail you wrote down. It ignores case, including Unicode case differences
 `Montréal`). `%`, `_`, quotes, and backslashes are ordinary text, not patterns, and
 a blank search is rejected.
 
+Give `--search` more than once to find applications that contain every term, in
+any order. Each term can match on its own, in the company, the role, or any note,
+so `--search backend --search remote` finds a backend role whose notes mention
+working remotely. A phrase with spaces in one `--search` is still matched as
+written.
+
+`--exclude` leaves out applications whose company, role, or notes contain the
+text, compared the same way as `--search`. Give it more than once to leave out
+applications containing any of the terms. It works with or without `--search`
+and wins when both match, so `--search backend --exclude contract` drops a
+backend role whose notes say it is a contract.
+
 `list --search` shows each matching note's date and the line that matched below
-its application, so you can see why it was found:
+its application, so you can see why it was found. With several terms, a note is
+shown if it contains any of them, around the first one it contains:
 
 ```text
 #1  Example Company — Software Engineer
@@ -90,8 +105,8 @@ its application, so you can see why it was found:
 A line longer than 100 characters is shortened around the match, with `…` where
 it was cut. Use `notes ID` to read the full notes.
 
-`--due`, `--status`, and `--search` can be combined, and like the other filters,
-`--search` looks only at active applications unless `--archived` is given.
+`--due`, `--status`, `--search`, and `--exclude` can be combined, and like the
+other filters, they look only at active applications unless `--archived` is given.
 Company, role, and note text is shown with control characters escaped, so stored
 text cannot rewrite the terminal.
 
@@ -257,8 +272,8 @@ python3 applytrack.py export --archived > archived.csv
 ```
 
 `export` takes the same filters as `list`, uses the same order, and writes to
-standard output; errors go to stderr. `export --search` includes applications
-found by their notes, though the notes themselves are not exported. The columns
+standard output; errors go to stderr. `export --search` and `--exclude` also look
+at notes, though the notes themselves are not exported. The columns
 are `id`, `company`, `role`, `status`, `applied_on`, and `follow_up_on`. A missing
 follow-up is an empty cell, and an empty export still has its header. Company and
 role text that a spreadsheet would treat as a formula, such as text starting with
@@ -456,10 +471,10 @@ requests.
   replaced.
 - Notes are plain text with a date. A note cannot be edited or removed except by
   deleting the application.
-- `--search` matches one literal piece of text, not several words in any order,
-  and does not look at statuses or dates, which have their own filters. It reads
-  every note on each search, which is fast for a personal job search but has no
-  full-text index.
+- `--search` matches literal text, not word stems or spelling variants, and
+  several terms all have to match; there is no "either" search. It does not look
+  at statuses or dates, which have their own filters. It reads every note on each
+  search, which is fast for a personal job search but has no full-text index.
 - `stats` has no end date or per-company breakdown, and its timing covers only
   responses recorded with a date.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.

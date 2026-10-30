@@ -1,6 +1,7 @@
 """Command-line interface: argument parsing, terminal output, and exit codes."""
 
 import argparse
+from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -80,6 +81,12 @@ def note_excerpt(body: str, search: str, width: int = EXCERPT_WIDTH) -> str:
     return ("…" if start else "") + _terminal_text(window) + ("…" if start + width < len(line) else "")
 
 
+def _matched_term(body: str, terms: Sequence[str]) -> str:
+    # Excerpt a note around the first search term it contains, in the order given.
+    folded = body.casefold()
+    return next((term for term in terms if term.strip().casefold() in folded), terms[0])
+
+
 def _confirmed(prompt: str) -> bool:
     try:
         answer = input(prompt)
@@ -90,13 +97,15 @@ def _confirmed(prompt: str) -> bool:
 
 def display(
     rows: list[sqlite3.Row], due_only: bool, filtered: bool = False, *, archived: bool = False,
-    hidden: int = 0, notes: dict[int, list[sqlite3.Row]] | None = None, search: str | None = None,
+    hidden: int = 0, notes: dict[int, list[sqlite3.Row]] | None = None,
+    search: str | Sequence[str] | None = None,
 ) -> None:
     """Print applications for the terminal, or a message explaining an empty list.
 
     ``filtered``, ``due_only``, and ``archived`` describe the list that was asked
     for; ``hidden`` is the number of archived applications left out of it. With
-    ``search``, each application's ``notes`` that matched it are shown as excerpts.
+    ``search``, one term or several, each application's ``notes`` that matched
+    any term are shown as excerpts around the first term they contain.
     """
     if not rows:
         if filtered:
@@ -118,8 +127,9 @@ def display(
             f" | Follow up: {row['follow_up_on'] or 'not set'}{archived_on}"
         )
         if notes and search is not None:
+            terms = (search,) if isinstance(search, str) else search
             for note in notes.get(row["id"], []):
-                print(f"    Note {note['noted_on']}: {note_excerpt(note['body'], search)}")
+                print(f"    Note {note['noted_on']}: {note_excerpt(note['body'], _matched_term(note['body'], terms))}")
 
 
 def _share(count: int, total: int) -> str:
@@ -168,13 +178,19 @@ def parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("list", help="Show saved applications")
     listing.add_argument("--due", action="store_true", help="Only show follow-ups due today or earlier")
     listing.add_argument("--status", choices=STATUSES)
-    listing.add_argument("--search", help="Find company, role, or note text, ignoring case")
+    listing.add_argument("--search", action="append", metavar="TEXT",
+                         help="Find company, role, or note text, ignoring case; repeat to require every term")
+    listing.add_argument("--exclude", action="append", metavar="TEXT",
+                         help="Leave out applications with this company, role, or note text; repeatable")
     listing.add_argument("--archived", action="store_true", help="Show archived applications instead")
 
     export = commands.add_parser("export", help="Write a CSV export to standard output")
     export.add_argument("--due", action="store_true", help="Only export follow-ups due today or earlier")
     export.add_argument("--status", choices=STATUSES)
-    export.add_argument("--search", help="Only export applications with matching company, role, or note text")
+    export.add_argument("--search", action="append", metavar="TEXT",
+                        help="Only export applications with matching company, role, or note text; repeatable")
+    export.add_argument("--exclude", action="append", metavar="TEXT",
+                        help="Leave out applications with this company, role, or note text; repeatable")
     export.add_argument("--archived", action="store_true", help="Export archived applications instead")
 
     importing = commands.add_parser("import", help="Add applications from a CSV file")
@@ -239,8 +255,8 @@ def _add(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     rows = list_applications(connection, due_only=args.due, status=args.status,
-                             search=args.search, archived=args.archived)
-    filtered = args.status is not None or args.search is not None
+                             search=args.search, exclude=args.exclude, archived=args.archived)
+    filtered = args.status is not None or args.search is not None or args.exclude is not None
     hidden = 0 if rows or filtered or args.due or args.archived else archived_count(connection)
     notes = matching_notes(connection, args.search) if rows and args.search is not None else None
     display(rows, args.due, filtered=filtered, archived=args.archived, hidden=hidden,
@@ -249,8 +265,8 @@ def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _export(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    export_csv(list_applications(connection, due_only=args.due, status=args.status,
-                                 search=args.search, archived=args.archived), sys.stdout)
+    export_csv(list_applications(connection, due_only=args.due, status=args.status, search=args.search,
+                                 exclude=args.exclude, archived=args.archived), sys.stdout)
     return 0
 
 

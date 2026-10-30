@@ -4,7 +4,7 @@ Every function takes an open connection from ``connect``. Writes run inside a
 transaction, and invalid input raises ValueError before anything is saved.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date
 from pathlib import Path
 import sqlite3
@@ -16,6 +16,7 @@ from .validation import (
     check_status,
     nonempty,
     past_date,
+    search_terms,
     submission_date,
     validate_date,
 )
@@ -147,13 +148,19 @@ def add_application(
     return cursor.lastrowid
 
 
+# True when the application's company, role, or one of its notes contains the
+# casefolded term bound to each of its three placeholders.
+TEXT_MATCHES = f"(instr(casefold(company), ?) > 0 OR instr(casefold(role), ?) > 0 OR {notes.MATCHES})"
+
+
 def list_applications(
     connection: sqlite3.Connection,
     due_only: bool = False,
     today: date | None = None,
     *,
     status: str | None = None,
-    search: str | None = None,
+    search: str | Sequence[str] | None = None,
+    exclude: str | Sequence[str] | None = None,
     archived: bool = False,
 ) -> list[sqlite3.Row]:
     """Return applications matching every given filter.
@@ -162,16 +169,23 @@ def list_applications(
     only archived ones are. ``due_only`` keeps follow-ups on or before ``today``
     (default: the local date) that are not rejected or withdrawn, ordered by
     follow-up date; otherwise the newest application comes first. ``search``
-    matches company, role, or note text, ignoring case.
+    matches company, role, or note text, ignoring case; given several terms, an
+    application must contain every one of them, each in any of those places.
+    ``exclude`` leaves out applications whose company, role, or notes contain
+    any of its terms, compared the same way.
     """
     if status is not None:
         check_status(status)
     clauses = ["archived_on IS NOT NULL" if archived else "archived_on IS NULL"]
     values = []
     if search is not None:
-        search = nonempty(search, "Search").casefold()
-        clauses.append(f"(instr(casefold(company), ?) > 0 OR instr(casefold(role), ?) > 0 OR {notes.MATCHES})")
-        values.extend((search, search, search))
+        for term in search_terms(search):
+            clauses.append(TEXT_MATCHES)
+            values.extend((term, term, term))
+    if exclude is not None:
+        for term in search_terms(exclude, "Excluded text"):
+            clauses.append(f"NOT {TEXT_MATCHES}")
+            values.extend((term, term, term))
     if due_only:
         clauses.append("follow_up_on <= ? AND status NOT IN (?, ?)")
         values.extend(((today or date.today()).isoformat(), *CLOSED_STATUSES))
