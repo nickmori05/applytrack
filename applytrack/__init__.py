@@ -5,7 +5,7 @@ The package is split by concern:
 - ``validation``: statuses and the date and text rules every entry point shares.
 - ``storage``: the SQLite schema, automatic upgrades, and record operations.
 - ``history``: the dated status changes behind ``history ID``.
-- ``notes``: the dated notes behind ``note`` and ``notes ID``.
+- ``notes``: the dated notes behind ``note``, ``notes ID``, ``edit-note``, and ``delete-note``.
 - ``stats``: the status, response, and timing summary behind ``stats``.
 - ``csv_io``: CSV export and import.
 - ``backup`` and ``backup_check``: JSON backups of everything, and restoring them.
@@ -19,7 +19,7 @@ from .backup_check import Counts, Record, read_backup, record_counts
 from .cli import DEFAULT_DATABASE, display, main, note_excerpt, note_lines, parser, summary_lines
 from .csv_io import EXPORT_COLUMNS, IMPORT_COLUMNS, export_csv, import_csv
 from .history import status_changes, timeline
-from .notes import application_notes, matching_notes
+from .notes import application_notes, matching_notes, numbered_note
 from .stats import INTERVIEW_STATUSES, RESPONSE_STATUSES, Summary, summarize
 from .storage import (
     add_application,
@@ -28,6 +28,9 @@ from .storage import (
     archived_count,
     connect,
     delete_application,
+    delete_note,
+    edit_note,
+    find_note,
     get_application,
     list_applications,
     restore_application,
@@ -53,8 +56,11 @@ __all__ = [
     "archived_count",
     "connect",
     "delete_application",
+    "delete_note",
     "display",
+    "edit_note",
     "export_csv",
+    "find_note",
     "get_application",
     "import_csv",
     "list_applications",
@@ -63,6 +69,7 @@ __all__ = [
     "nonempty",
     "note_excerpt",
     "note_lines",
+    "numbered_note",
     "parser",
     "read_backup",
     "record_counts",

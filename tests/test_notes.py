@@ -133,17 +133,17 @@ class NoteTests(unittest.TestCase):
         run_cli(self.database, "note", "1", "Take-home sent.")
         self.assertEqual(run_cli(self.database, "notes", "1"), (0, (
             "#1  Example — Engineer\n"
-            "    2026-09-03  Recruiter call with Sam.\n"
-            f"    {date.today().isoformat()}  Take-home sent.\n"
+            "    1  2026-09-03  Recruiter call with Sam.\n"
+            f"    2  {date.today().isoformat()}  Take-home sent.\n"
         ), ""))
 
     def test_cli_lines_up_multi_line_notes_and_escapes_control_characters(self):
         applytrack.add_note(self.connection, self.identifier, "Agenda:\r\n\n- system design\x1b[2J", "2026-09-03")
         self.assertEqual(run_cli(self.database, "notes", "1")[1], (
             "#1  Example — Engineer\n"
-            "    2026-09-03  Agenda:\n"
+            "    1  2026-09-03  Agenda:\n"
             "\n"
-            "                - system design\\x1b[2J\n"
+            "                   - system design\\x1b[2J\n"
         ))
 
     def test_cli_reports_invalid_notes(self):
@@ -205,7 +205,7 @@ class NoteUpgradeTests(unittest.TestCase):
     def test_cli_adds_notes_to_a_previous_database(self):
         self.assertEqual(run_cli(self.database, "note", "1", "Panel on Monday.", "--on", "2026-09-14")[0], 0)
         self.assertEqual(run_cli(self.database, "notes", "1"),
-                         (0, "#1  First — Engineer\n    2026-09-14  Panel on Monday.\n", ""))
+                         (0, "#1  First — Engineer\n    1  2026-09-14  Panel on Monday.\n", ""))
         self.assertEqual(run_cli(self.database, "delete", "1", "--yes")[0], 0)
         self.assertEqual(self.raw("SELECT count(*) FROM notes"), [(0,)])
 

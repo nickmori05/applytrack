@@ -3,6 +3,10 @@
 ``storage.add_note`` validates a note and saves it only if its application
 exists, and ``storage.delete_application`` removes an application's notes in the
 same transaction as the application.
+
+Notes are referred to by number: their position, counting from 1, in the order
+``application_notes`` returns them. Numbers are per application, so they read the
+same after a backup is restored, where note row IDs are not kept.
 """
 
 from collections import defaultdict
@@ -61,6 +65,26 @@ def application_notes(connection: sqlite3.Connection, application_id: int) -> li
         "SELECT id, noted_on, body FROM notes WHERE application_id = ? ORDER BY noted_on, id",
         (application_id,),
     ).fetchall()
+
+
+def numbered_note(connection: sqlite3.Connection, application_id: int, number: int) -> sqlite3.Row | None:
+    """Return an application's note ``number``, counting from 1 as ``notes ID`` shows them, or None."""
+    if number < 1:
+        return None
+    return connection.execute(
+        "SELECT id, noted_on, body FROM notes WHERE application_id = ? ORDER BY noted_on, id LIMIT 1 OFFSET ?",
+        (application_id, number - 1),
+    ).fetchone()
+
+
+def note_number(connection: sqlite3.Connection, application_id: int, note_id: int) -> int:
+    """Return the number of the note with row ID ``note_id``, which must belong to the application."""
+    return connection.execute(
+        """SELECT count(*) FROM notes AS earlier, notes AS this
+           WHERE this.id = ? AND earlier.application_id = ?
+             AND (earlier.noted_on < this.noted_on OR (earlier.noted_on = this.noted_on AND earlier.id <= this.id))""",
+        (note_id, application_id),
+    ).fetchone()[0]
 
 
 def matching_notes(connection: sqlite3.Connection, search: str) -> dict[int, list[sqlite3.Row]]:
