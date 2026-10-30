@@ -124,5 +124,106 @@ class SearchTermTests(unittest.TestCase):
                                  (1, "", "Error: Search cannot be empty.\n"))
 
 
+class ExcludeTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.database = Path(directory.name) / "applications.sqlite3"
+        self.connection = applytrack.connect(self.database)
+        self.addCleanup(self.connection.close)
+
+    def add(self, company, role="Engineer", *notes, follow_up=None):
+        identifier = applytrack.add_application(self.connection, company, role, follow_up, applied_on="2026-09-01")
+        for body in notes:
+            applytrack.add_note(self.connection, identifier, body, "2026-09-03")
+        return identifier
+
+    def ids(self, **filters):
+        return [row["id"] for row in applytrack.list_applications(self.connection, **filters)]
+
+    def test_exclude_leaves_out_company_role_and_note_matches(self):
+        kept = self.add("Example Labs", "Backend Engineer", "Full-time, remote.")
+        self.add("Contract Co", "Backend Engineer")
+        self.add("Example", "Backend Engineer (Contract)")
+        self.add("Agency", "Backend Engineer", "Recruiter says it is a CONTRACT role.")
+        self.assertEqual(self.ids(exclude="contract"), [kept])
+        self.assertEqual(self.ids(exclude=["contract"]), [kept])
+
+    def test_any_excluded_term_leaves_an_application_out(self):
+        kept = self.add("Example Labs")
+        self.add("Contract Co")
+        self.add("Agency", "Engineer", "Via a staffing agency.")
+        self.assertEqual(self.ids(exclude=["contract", "staffing"]), [kept])
+
+    def test_exclude_combines_with_search_and_wins_over_it(self):
+        kept = self.add("Example Labs", "Backend Engineer", "remote")
+        self.add("Other Labs", "Backend Engineer", "remote, but contract")
+        self.add("Unrelated", "Designer", "remote")
+        self.assertEqual(self.ids(search=["backend", "remote"], exclude="contract"), [kept])
+        self.assertEqual(self.ids(search="contract", exclude="contract"), [])
+
+    def test_exclude_combines_with_due_dates_status_and_archive(self):
+        today = date(2026, 9, 30)
+        due = self.add("Due Labs", follow_up="2026-09-29")
+        self.add("Due Contract", follow_up="2026-09-29")
+        archived = self.add("Archived Labs")
+        self.add("Archived Contract")
+        for identifier in (archived, archived + 1):
+            applytrack.archive_application(self.connection, identifier)
+        self.assertEqual(self.ids(exclude="contract", due_only=True, today=today), [due])
+        self.assertEqual(self.ids(exclude="contract", archived=True), [archived])
+        self.assertEqual(self.ids(exclude="contract", status="interviewing"), [])
+
+    def test_excluded_text_is_literal_and_ignores_case_like_search(self):
+        kept = self.add("Plain")
+        self.add("100% Remote", "Engineer", "O'Brien referred me.")
+        self.add("Straße Labs")
+        self.assertEqual(self.ids(exclude=["%", "o'brien", "STRASSE"]), [kept])
+        self.assertEqual(len(self.ids(exclude="_")), 3)
+
+    def test_applications_without_notes_are_not_dropped(self):
+        identifier = self.add("Example Labs")
+        self.assertEqual(self.ids(exclude="anything"), [identifier])
+
+    def test_blank_excluded_text_is_rejected(self):
+        self.add("Example")
+        for exclude in ("  ", ["contract", ""], []):
+            with self.subTest(exclude=exclude):
+                with self.assertRaisesRegex(ValueError, "Excluded text cannot be empty."):
+                    self.ids(exclude=exclude)
+
+    def test_cli_list_and_export_leave_out_excluded_applications(self):
+        self.add("Example Labs", "Backend Engineer")
+        self.add("Contract Co", "Backend Engineer")
+        self.add("Agency", "Designer", "contract")
+        self.assertEqual(run_cli(self.database, "list", "--exclude", "contract"), (0, (
+            "#1  Example Labs — Backend Engineer\n"
+            "    applied | Applied: 2026-09-01 | Follow up: not set\n"
+        ), ""))
+        code, output, _ = run_cli(self.database, "export", "--exclude", "contract", "--exclude", "example")
+        self.assertEqual((code, output), (0, ",".join(applytrack.EXPORT_COLUMNS) + "\n"))
+        self.assertEqual(run_cli(self.database, "list", "--exclude", "labs", "--exclude", "co"),
+                         (0, "No applications match these filters.\n", ""))
+
+    def test_cli_shows_only_notes_matching_search_terms(self):
+        self.add("Example Labs", "Backend Engineer", "Remote role.", "Not a contract.")
+        self.add("Other Labs", "Backend Engineer", "Remote contract role.")
+        self.assertEqual(run_cli(self.database, "list", "--search", "remote", "--exclude", "agency"), (0, (
+            "#2  Other Labs — Backend Engineer\n"
+            "    applied | Applied: 2026-09-01 | Follow up: not set\n"
+            "    Note 2026-09-03: Remote contract role.\n"
+            "#1  Example Labs — Backend Engineer\n"
+            "    applied | Applied: 2026-09-01 | Follow up: not set\n"
+            "    Note 2026-09-03: Remote role.\n"
+        ), ""))
+
+    def test_cli_rejects_blank_excluded_text(self):
+        self.add("Example")
+        for command in ("list", "export"):
+            with self.subTest(command=command):
+                self.assertEqual(run_cli(self.database, command, "--exclude", " "),
+                                 (1, "", "Error: Excluded text cannot be empty.\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

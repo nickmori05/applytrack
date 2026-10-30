@@ -160,6 +160,7 @@ def list_applications(
     *,
     status: str | None = None,
     search: str | Sequence[str] | None = None,
+    exclude: str | Sequence[str] | None = None,
     archived: bool = False,
 ) -> list[sqlite3.Row]:
     """Return applications matching every given filter.
@@ -170,6 +171,8 @@ def list_applications(
     follow-up date; otherwise the newest application comes first. ``search``
     matches company, role, or note text, ignoring case; given several terms, an
     application must contain every one of them, each in any of those places.
+    ``exclude`` leaves out applications whose company, role, or notes contain
+    any of its terms, compared the same way.
     """
     if status is not None:
         check_status(status)
@@ -178,6 +181,10 @@ def list_applications(
     if search is not None:
         for term in search_terms(search):
             clauses.append(TEXT_MATCHES)
+            values.extend((term, term, term))
+    if exclude is not None:
+        for term in search_terms(exclude, "Excluded text"):
+            clauses.append(f"NOT {TEXT_MATCHES}")
             values.extend((term, term, term))
     if due_only:
         clauses.append("follow_up_on <= ? AND status NOT IN (?, ?)")

@@ -180,6 +180,8 @@ def parser() -> argparse.ArgumentParser:
     listing.add_argument("--status", choices=STATUSES)
     listing.add_argument("--search", action="append", metavar="TEXT",
                          help="Find company, role, or note text, ignoring case; repeat to require every term")
+    listing.add_argument("--exclude", action="append", metavar="TEXT",
+                         help="Leave out applications with this company, role, or note text; repeatable")
     listing.add_argument("--archived", action="store_true", help="Show archived applications instead")
 
     export = commands.add_parser("export", help="Write a CSV export to standard output")
@@ -187,6 +189,8 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--status", choices=STATUSES)
     export.add_argument("--search", action="append", metavar="TEXT",
                         help="Only export applications with matching company, role, or note text; repeatable")
+    export.add_argument("--exclude", action="append", metavar="TEXT",
+                        help="Leave out applications with this company, role, or note text; repeatable")
     export.add_argument("--archived", action="store_true", help="Export archived applications instead")
 
     importing = commands.add_parser("import", help="Add applications from a CSV file")
@@ -251,8 +255,8 @@ def _add(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     rows = list_applications(connection, due_only=args.due, status=args.status,
-                             search=args.search, archived=args.archived)
-    filtered = args.status is not None or args.search is not None
+                             search=args.search, exclude=args.exclude, archived=args.archived)
+    filtered = args.status is not None or args.search is not None or args.exclude is not None
     hidden = 0 if rows or filtered or args.due or args.archived else archived_count(connection)
     notes = matching_notes(connection, args.search) if rows and args.search is not None else None
     display(rows, args.due, filtered=filtered, archived=args.archived, hidden=hidden,
@@ -261,8 +265,8 @@ def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _export(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    export_csv(list_applications(connection, due_only=args.due, status=args.status,
-                                 search=args.search, archived=args.archived), sys.stdout)
+    export_csv(list_applications(connection, due_only=args.due, status=args.status, search=args.search,
+                                 exclude=args.exclude, archived=args.archived), sys.stdout)
     return 0
 
 
