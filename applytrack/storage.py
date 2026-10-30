@@ -74,6 +74,7 @@ UPGRADES = (
     (_lacks_archive, _add_archive),
     (history.lacks_table, history.create_table),
     (notes.lacks_table, notes.create_table),
+    (history.lacks_previous_status, history.add_previous_status),
 )
 
 
@@ -254,9 +255,10 @@ def update_application(
         connection.execute("BEGIN IMMEDIATE")
         _check_follow_up_change(connection, application_id, applied_on, follow_up_on, clear_follow_up)
         changed_on = _status_change_date(connection, application_id, status, applied_on, changed_on, today)
+        previous_status = get_application(connection, application_id)["status"]
         connection.execute(f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values)
         if changed_on is not None:
-            history.record_change(connection, application_id, status, changed_on)
+            history.record_change(connection, application_id, status, changed_on, previous_status)
 
 
 def _check_follow_up_change(
@@ -302,6 +304,37 @@ def _status_change_date(
     if last_change is not None and changed_on < last_change:
         raise ValueError(f"Status change date cannot be before the last recorded change ({last_change}).")
     return changed_on
+
+
+def undo_status_change(connection: sqlite3.Connection, application_id: int) -> tuple[str, str, str]:
+    """Remove an application's latest recorded status change and restore the status before it.
+
+    Returns ``(removed_status, changed_on, restored_status)``. Only the status and
+    its history change; dates, names, and the archive state stay as they are.
+    Raises ValueError, changing nothing, if the application does not exist, has
+    no recorded change, has a current status that no recorded change set (as
+    after an import), or if the status before the change was never recorded.
+    """
+    with connection:
+        # Take the write lock before reading, so the change removed is still the latest.
+        connection.execute("BEGIN IMMEDIATE")
+        current = get_application(connection, application_id)
+        changes = history.latest_changes(connection, application_id)
+        if not changes:
+            raise ValueError(f"Application {application_id} has no recorded status change to undo.")
+        latest = changes[0]
+        if latest["status"] != current["status"]:
+            raise ValueError(f"Application {application_id}'s status, {current['status']}, was not set by a "
+                             "recorded change, so there is nothing to undo.")
+        # Changes recorded before the replaced status was kept fall back on the
+        # change before them, which every later change replaced.
+        restored = latest["previous_status"] or (changes[1]["status"] if len(changes) > 1 else None)
+        if restored is None:
+            raise ValueError(f"The status before the change to {latest['status']} on {latest['changed_on']} "
+                             "was not recorded, so it cannot be undone. Use 'update --status' to set it.")
+        history.remove_change(connection, latest["id"])
+        connection.execute("UPDATE applications SET status = ? WHERE id = ?", (restored, application_id))
+    return latest["status"], latest["changed_on"], restored
 
 
 def get_application(connection: sqlite3.Connection, application_id: int) -> sqlite3.Row:

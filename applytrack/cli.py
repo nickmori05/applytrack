@@ -23,6 +23,7 @@ from .storage import (
     get_application,
     list_applications,
     restore_application,
+    undo_status_change,
     update_application,
 )
 from .validation import STATUSES
@@ -198,6 +199,9 @@ def parser() -> argparse.ArgumentParser:
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
 
+    undo = commands.add_parser("undo-status", help="Remove the latest status change and restore the status before it")
+    undo.add_argument("id", type=int, help="Application ID")
+
     note = commands.add_parser("note", help="Add a dated note to an application")
     note.add_argument("id", type=int, help="Application ID")
     note.add_argument("text", help="The note, such as who you spoke to and what comes next")
@@ -289,6 +293,12 @@ def _history(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _undo_status(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    removed, changed_on, restored = undo_status_change(connection, args.id)
+    print(f"Removed the change to {removed} on {changed_on}; application #{args.id} is {restored} again.")
+    return 0
+
+
 def _note(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     add_note(connection, args.id, args.text, args.on)
     print(f"Added a note to application #{args.id}.")
@@ -352,6 +362,7 @@ COMMANDS = {
     "import": _import,
     "update": _update,
     "history": _history,
+    "undo-status": _undo_status,
     "stats": _stats,
     "note": _note,
     "notes": _notes,

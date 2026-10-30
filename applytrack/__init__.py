@@ -4,7 +4,7 @@ The package is split by concern:
 
 - ``validation``: statuses and the date and text rules every entry point shares.
 - ``storage``: the SQLite schema, automatic upgrades, and record operations.
-- ``history``: the dated status changes behind ``history ID``.
+- ``history``: the dated status changes behind ``history ID`` and ``undo-status``.
 - ``notes``: the dated notes behind ``note`` and ``notes ID``.
 - ``stats``: the status, response, and timing summary behind ``stats``.
 - ``csv_io``: CSV export and import.
@@ -31,6 +31,7 @@ from .storage import (
     get_application,
     list_applications,
     restore_application,
+    undo_status_change,
     update_application,
 )
 from .validation import CLOSED_STATUSES, STATUSES, nonempty, submission_date, validate_date
@@ -75,6 +76,7 @@ __all__ = [
     "summarize",
     "summary_lines",
     "timeline",
+    "undo_status_change",
     "update_application",
     "validate_date",
     "write_backup",

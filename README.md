@@ -10,7 +10,8 @@ Python standard library.
 - Record applications with their submission and follow-up dates.
 - See what needs a follow-up today, filter by status, and search company, role,
   and note text.
-- Keep a dated history of each application's status changes.
+- Keep a dated history of each application's status changes, and undo a change
+  made by mistake.
 - Keep dated notes on each application, such as who you spoke to and what comes next.
 - Summarize your search: statuses, response and interview rates, and how long
   employers take to respond.
@@ -138,6 +139,32 @@ The history starts with the submission date. Applications saved before history
 was kept, or imported with a status other than `applied`, show that status with
 the date `unknown` until it next changes. Archiving does not change the history,
 and deleting an application deletes its history.
+
+### Undoing a status change
+
+```sh
+python3 applytrack.py undo-status 1
+python3 applytrack.py update 1 --status rejected --changed-on 2026-09-22
+```
+
+```text
+Removed the change to rejected on 2026-09-20; application #1 is interviewing again.
+```
+
+`undo-status` removes the latest entry in an application's history and puts back
+the status it replaced, so a status set by mistake, or with the wrong
+`--changed-on`, can be corrected: undo it, then record it again with `update`.
+Running it again removes the entry before that, back to the submission. Only the
+status and its history change; dates, names, notes, and archiving stay as they
+are. It is not confirmed first, since `update --status` can always record the
+change again.
+
+Each change records the status it replaced, including a status from an import.
+Changes recorded before this was kept, or restored from a backup, fall back on the
+entry before them, so every change but an application's first can still be
+undone; undoing that first one is refused, because the status before it is not
+known. Undoing is also refused when the current status was not set by a recorded
+change, such as one from an import.
 
 ### Notes
 
@@ -381,7 +408,7 @@ tests/                unittest suite, one file per area
   to the same application, even after it is deleted.
 - **History is written with the status:** `update` takes the write lock, checks
   the new dates against the recorded history, and saves the status and its history
-  entry in one transaction. `delete` removes the application, its history, and its
+  entry, including the status it replaced, in one transaction. `delete` removes the application, its history, and its
   notes in one transaction, so neither table depends on SQLite foreign keys being
   enabled. A note is saved only if its application exists.
 - **Backups restore only into an empty database:** a restore checks the whole
@@ -424,7 +451,9 @@ requests.
 - Backups are not scheduled or encrypted. Run `backup` yourself, and keep the
   file somewhere private, since it holds every note.
 - Status history records days, not times, and only changes made with `update`.
-  A recorded change cannot be edited or removed except by deleting the application.
+  Only the latest change can be removed, with `undo-status`; an earlier one is
+  corrected by undoing back to it. Backups do not keep the status each change
+  replaced.
 - Notes are plain text with a date. A note cannot be edited or removed except by
   deleting the application.
 - `--search` matches one literal piece of text, not several words in any order,
