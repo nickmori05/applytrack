@@ -74,6 +74,7 @@ UPGRADES = (
     (_lacks_archive, _add_archive),
     (history.lacks_table, history.create_table),
     (notes.lacks_table, notes.create_table),
+    (history.lacks_previous_status, history.add_previous_status),
 )
 
 
@@ -254,9 +255,10 @@ def update_application(
         connection.execute("BEGIN IMMEDIATE")
         _check_follow_up_change(connection, application_id, applied_on, follow_up_on, clear_follow_up)
         changed_on = _status_change_date(connection, application_id, status, applied_on, changed_on, today)
+        previous_status = get_application(connection, application_id)["status"]
         connection.execute(f"UPDATE applications SET {', '.join(fields)} WHERE id = ?", values)
         if changed_on is not None:
-            history.record_change(connection, application_id, status, changed_on)
+            history.record_change(connection, application_id, status, changed_on, previous_status)
 
 
 def _check_follow_up_change(

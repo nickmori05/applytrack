@@ -381,7 +381,7 @@ tests/                unittest suite, one file per area
   to the same application, even after it is deleted.
 - **History is written with the status:** `update` takes the write lock, checks
   the new dates against the recorded history, and saves the status and its history
-  entry in one transaction. `delete` removes the application, its history, and its
+  entry, including the status it replaced, in one transaction. `delete` removes the application, its history, and its
   notes in one transaction, so neither table depends on SQLite foreign keys being
   enabled. A note is saved only if its application exists.
 - **Backups restore only into an empty database:** a restore checks the whole
