@@ -27,7 +27,7 @@ Requires Python 3.10 or later and nothing else.
 ```sh
 git clone https://github.com/nickmori05/applytrack.git
 cd applytrack
-python3 applytrack.py add "Example Company" "Software Engineer" --follow-up 2026-09-16
+python3 applytrack.py add "Example Company" "Software Engineer" --applied-on 2026-09-01 --follow-up 2026-09-16
 python3 applytrack.py update 1 --status interviewing
 python3 applytrack.py list
 python3 applytrack.py list --due
@@ -47,8 +47,10 @@ python3 applytrack.py add "Example Company" "Engineer" --applied-on 2026-09-01 -
 ```
 
 The submission date defaults to today and can be any valid `YYYY-MM-DD` date up
-to today. Follow-up dates can be any valid date. Company and role are trimmed and
-cannot be blank. Invalid input is rejected without saving anything.
+to today. A follow-up date can be any valid date on or after the submission date,
+including the same day, so an application sent earlier with a follow-up before
+today needs its `--applied-on`. Company and role are trimmed and cannot be blank.
+Invalid input is rejected without saving anything.
 
 All dates use the computer's local calendar date. A follow-up represents a day,
 not a reminder at a particular time.
@@ -106,6 +108,9 @@ python3 applytrack.py update 1 --status offer --changed-on 2026-09-30
 
 Any of these options can be combined. They follow the same rules as `add`, and if
 any requested change is invalid, the whole update is rejected. The ID never changes.
+A new `--follow-up` is checked against the submission date, saved or given in the
+same command. Moving `--applied-on` past the saved follow-up is rejected unless the
+same command also gives a new `--follow-up` or `--clear-follow-up`.
 
 ### Status history
 
@@ -266,9 +271,10 @@ surrounding spaces. An `id` column is ignored, so a file from `export` can be
 imported directly; imported rows receive new IDs. Any other column is rejected so
 a misspelled header is not silently dropped.
 
-Blank cells use the same defaults as `add`, and values follow the same rules. If
-any row is invalid, nothing is imported and the error names the row as numbered
-in a spreadsheet (the header is row 1). `--dry-run` runs every check and reports
+Blank cells use the same defaults as `add`, and values follow the same rules,
+including a follow-up no earlier than the row's submission date. If any row is
+invalid, nothing is imported and the error names the row as numbered in a
+spreadsheet (the header is row 1). `--dry-run` runs every check and reports
 how many applications would be added without saving them.
 
 Rows matching a saved application's company, role, and submission date exactly,
@@ -305,9 +311,10 @@ commands: valid statuses and `YYYY-MM-DD` dates, non-blank text, and a status
 history in date order that starts no earlier than the submission date. If any
 value is invalid, nothing is restored and the error names the application by its
 position in the file. Dates after today are accepted, since the backup may come
-from a computer whose calendar was already on the next day. `--dry-run` runs every
-check, including that the database is empty, without saving. Use `-` to read
-standard input.
+from a computer whose calendar was already on the next day. A follow-up before the
+submission date is also accepted, since earlier versions allowed one. `--dry-run`
+runs every check, including that the database is empty, without saving. Use `-` to
+read standard input.
 
 A backup also records the highest ID ever given out, so IDs deleted before the
 backup are not given to new applications after a restore. Files from a newer
@@ -352,6 +359,12 @@ Each upgrade step runs in a single transaction, so if one fails the database is
 left as it was and the error is shown. Upgrading needs write access to the
 database file. SQLite records the highest saved ID during the upgrade; an ID above
 that, deleted before upgrading, can still be used once more.
+
+Earlier versions allowed a follow-up date before the submission date. Applications
+saved that way are kept as they are and still appear in `list --due`, and their
+status, company, and role can be updated as usual. The rule applies the next time
+either date is changed, so fix one with `update ID --follow-up DATE`,
+`--clear-follow-up`, or an `--applied-on` no later than the follow-up.
 
 ## Design
 
@@ -413,8 +426,9 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search of names, roles, and
 notes, CSV quoting and round trips, imports, deletion prompts, archiving, status
-history, notes and their numbering, edits, and deletion, summary statistics, JSON backup round trips and rejected backups,
-ID reuse, and upgrading databases from earlier versions, including failed
+history, notes and their numbering, edits, and deletion, summary statistics, JSON
+backup round trips and rejected backups, follow-up dates checked against submission
+dates, ID reuse, and upgrading databases from earlier versions, including failed
 upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and `ruff check`
 for pushes to `main` and for pull requests.
 

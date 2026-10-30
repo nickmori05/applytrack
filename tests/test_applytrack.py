@@ -37,7 +37,8 @@ class ApplicationTests(unittest.TestCase):
             ("Withdrawn", "2026-09-08", "withdrawn"),
             ("Unscheduled", None, "applied"),
         ):
-            identifier = applytrack.add_application(self.connection, name, "Engineer", deadline)
+            identifier = applytrack.add_application(self.connection, name, "Engineer", deadline,
+                                                     applied_on="2026-09-01")
             applytrack.update_application(self.connection, identifier, status=status)
             if name in ("Overdue", "Today"):
                 expected.append(identifier)
@@ -91,7 +92,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(applytrack.list_applications(self.connection), [])
 
     def test_invalid_update_leaves_existing_status_and_date_unchanged(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         with self.assertRaises(ValueError):
             applytrack.update_application(self.connection, identifier, "interviewing", "2026-02-30")
         row = applytrack.list_applications(self.connection)[0]
@@ -99,7 +101,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(row["follow_up_on"], "2026-09-10")
 
     def test_follow_up_can_be_rescheduled_then_cleared_without_losing_status(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         applytrack.update_application(self.connection, identifier, status="interviewing")
         applytrack.update_application(self.connection, identifier, follow_up_on="2026-09-12")
         row = applytrack.list_applications(self.connection)[0]
@@ -124,7 +127,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(lines[0], r"#1  Montréal 東京 — Engineer\nRemote\t\x1b[31m\u202eTitle")
 
     def test_company_and_role_edits_preserve_other_fields_and_survive_reopening(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         original = dict(applytrack.list_applications(self.connection)[0])
         company = "O'Brien's; DROP TABLE applications; --"
         for changes in ({"company": "  " + company + "  "}, {"role": "  Backend Engineer  "}):
@@ -135,7 +139,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(row, {**original, "company": company, "role": "Backend Engineer"})
 
     def test_invalid_detail_updates_leave_entire_record_unchanged(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         original = dict(applytrack.list_applications(self.connection)[0])
         for changes in (
             {"company": " \t", "status": "interviewing"},
@@ -207,7 +212,8 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(applytrack.list_applications(self.connection)[0]["applied_on"], "2026-08-14")
 
     def test_cli_updates_details_together_with_status_and_follow_up(self):
-        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10")
+        identifier = applytrack.add_application(self.connection, "Example", "Engineer", "2026-09-10",
+                                                applied_on="2026-09-01")
         arguments = ["--database", str(self.database), "update", str(identifier)]
         with redirect_stdout(io.StringIO()):
             code = applytrack.main(arguments + ["--company", "Example Labs", "--role", "Backend Engineer",
