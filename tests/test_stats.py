@@ -130,8 +130,57 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(run_cli(self.database, "stats", "--since", "2026-13-01"),
                          (1, "", "Error: Use a valid date in YYYY-MM-DD format.\n"))
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            applytrack.main(["--database", str(self.database), "stats", "--until", "2026-09-01"])
+            applytrack.main(["--database", str(self.database), "stats", "--since"])
 
+
+    def test_until_includes_its_own_date_and_combines_with_since(self):
+        self.add_sample()
+        self.assertEqual(applytrack.summarize(self.connection, until="2026-09-05").total, 3)
+        self.assertEqual(applytrack.summarize(self.connection, until="2026-09-04").total, 2)
+        self.assertEqual(applytrack.summarize(self.connection, until="2026-08-31").total, 0)
+        self.assertEqual(applytrack.summarize(self.connection, since="2026-09-03", until="2026-09-05").total, 2)
+        self.assertEqual(applytrack.summarize(self.connection, since="2026-09-05", until="2026-09-05").total, 1)
+        for value in ("", "2026-9-3", "2026-02-30"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "valid date"):
+                applytrack.summarize(self.connection, until=value)
+        with self.assertRaisesRegex(ValueError, r"The start date \(2026-09-06\) cannot be after the end date"):
+            applytrack.summarize(self.connection, since="2026-09-06", until="2026-09-05")
+
+    def test_until_counts_responses_that_came_after_it(self):
+        # The range chooses applications by submission date; what happened to them
+        # afterwards is still counted, as with --since.
+        self.add_sample()
+        summary = applytrack.summarize(self.connection, until="2026-09-03")
+        self.assertEqual((summary.total, summary.responded, summary.interviewed), (2, 2, 1))
+        self.assertEqual(summary.response_days, (3, 21))
+
+    def test_cli_names_the_date_range(self):
+        self.add_sample()
+        self.assertEqual(run_cli(self.database, "stats", "--until", "2026-09-03")[1].splitlines()[0],
+                         "Applications submitted on or before 2026-09-03: 2")
+        self.assertEqual(run_cli(self.database, "stats", "--since", "2026-09-03", "--until", "2026-09-05"),
+                         (0, (
+                             "Applications submitted from 2026-09-03 to 2026-09-05: 2 (1 archived)\n"
+                             "    applied       0\n"
+                             "    interviewing  0\n"
+                             "    offer         0\n"
+                             "    rejected      1\n"
+                             "    withdrawn     1\n"
+                             "Responses: 1 of 2 (50%)\n"
+                             "Interviews: 0 of 2 (0%)\n"
+                             "Days to first response: median 21, fastest 21, slowest 21 (from 1 response)\n"
+                         ), ""))
+
+    def test_cli_handles_empty_and_invalid_ranges(self):
+        self.add("2026-09-10")
+        self.assertEqual(run_cli(self.database, "stats", "--until", "2026-09-09"),
+                         (0, "No applications submitted on or before 2026-09-09.\n", ""))
+        self.assertEqual(run_cli(self.database, "stats", "--since", "2026-09-01", "--until", "2026-09-09"),
+                         (0, "No applications submitted from 2026-09-01 to 2026-09-09.\n", ""))
+        self.assertEqual(run_cli(self.database, "stats", "--since", "2026-09-11", "--until", "2026-09-10"),
+                         (1, "", "Error: The start date (2026-09-11) cannot be after the end date (2026-09-10).\n"))
+        self.assertEqual(run_cli(self.database, "stats", "--until", "2026-09-31"),
+                         (1, "", "Error: Use a valid date in YYYY-MM-DD format.\n"))
 
 class StatsUpgradeTests(unittest.TestCase):
     def test_database_from_before_status_history_is_summarized(self):

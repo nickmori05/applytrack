@@ -6,7 +6,8 @@ The package is split by concern:
 - ``storage``: the SQLite schema, automatic upgrades, and record operations.
 - ``history``: the dated status changes behind ``history ID``.
 - ``notes``: the dated notes behind ``note``, ``notes ID``, ``edit-note``, and ``delete-note``.
-- ``stats``: the status, response, and timing summary behind ``stats``.
+- ``stats``: the status, response, and timing summary behind ``stats``, and its
+  breakdown by company or month.
 - ``csv_io``: CSV export and import.
 - ``backup`` and ``backup_check``: JSON backups of everything, and restoring them.
 - ``cli``: argument parsing, terminal output, and exit codes.
@@ -16,11 +17,11 @@ The names below are re-exported so callers can use ``import applytrack``.
 
 from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import Counts, Record, read_backup, record_counts
-from .cli import DEFAULT_DATABASE, display, main, note_excerpt, note_lines, parser, summary_lines
+from .cli import DEFAULT_DATABASE, breakdown_lines, display, main, note_excerpt, note_lines, parser, summary_lines
 from .csv_io import EXPORT_COLUMNS, IMPORT_COLUMNS, export_csv, import_csv
 from .history import status_changes, timeline
 from .notes import application_notes, matching_notes, numbered_note
-from .stats import INTERVIEW_STATUSES, RESPONSE_STATUSES, Summary, summarize
+from .stats import GROUPINGS, INTERVIEW_STATUSES, RESPONSE_STATUSES, Summary, summarize, summarize_by
 from .storage import (
     add_application,
     add_note,
@@ -43,6 +44,7 @@ __all__ = [
     "Counts",
     "DEFAULT_DATABASE",
     "EXPORT_COLUMNS",
+    "GROUPINGS",
     "IMPORT_COLUMNS",
     "INTERVIEW_STATUSES",
     "RESPONSE_STATUSES",
@@ -54,6 +56,7 @@ __all__ = [
     "application_notes",
     "archive_application",
     "archived_count",
+    "breakdown_lines",
     "connect",
     "delete_application",
     "delete_note",
@@ -80,6 +83,7 @@ __all__ = [
     "status_changes",
     "submission_date",
     "summarize",
+    "summarize_by",
     "summary_lines",
     "timeline",
     "update_application",

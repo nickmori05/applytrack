@@ -12,7 +12,7 @@ from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
 from .notes import application_notes, matching_notes
-from .stats import Summary, summarize
+from .stats import GROUPINGS, Summary, summarize, summarize_by
 from .storage import (
     add_application,
     add_note,
@@ -135,14 +135,23 @@ def _dated(days: tuple[int, ...], responded: int) -> str:
     return f"from {len(days)} of {responded} responses; the rest have no recorded date"
 
 
-def summary_lines(summary: Summary, since: str | None = None) -> list[str]:
+def _scope(since: str | None, until: str | None) -> str:
+    if since and until:
+        return f" submitted from {since} to {until}"
+    if since:
+        return f" submitted on or after {since}"
+    if until:
+        return f" submitted on or before {until}"
+    return ""
+
+
+def summary_lines(summary: Summary, since: str | None = None, until: str | None = None) -> list[str]:
     """Return the lines ``stats`` prints for a summary of at least one application.
 
-    ``since`` is the submission date the summary was limited to, if any.
+    ``since`` and ``until`` are the submission dates the summary was limited to, if any.
     """
     archived = f" ({summary.archived} archived)" if summary.archived else ""
-    scope = f" submitted on or after {since}" if since else ""
-    lines = [f"Applications{scope}: {summary.total}{archived}"]
+    lines = [f"Applications{_scope(since, until)}: {summary.total}{archived}"]
     lines.extend(f"    {status:<12}  {count}" for status, count in summary.by_status.items())
     lines.append(f"Responses: {_share(summary.responded, summary.total)}")
     lines.append(f"Interviews: {_share(summary.interviewed, summary.total)}")
@@ -152,6 +161,37 @@ def summary_lines(summary: Summary, since: str | None = None) -> list[str]:
                      f" ({_dated(days, summary.responded)})")
     elif summary.responded:
         lines.append("Days to first response: no response dates recorded yet")
+    return lines
+
+
+BREAKDOWN_LABEL_WIDTH = 30
+
+
+def _shortened(label: str) -> str:
+    label = _terminal_text(label)
+    return label if len(label) <= BREAKDOWN_LABEL_WIDTH else label[:BREAKDOWN_LABEL_WIDTH - 1] + "…"
+
+
+def _count_share(count: int, total: int) -> str:
+    return f"{count} ({count / total:.0%})"
+
+
+def breakdown_lines(groups: list[tuple[str, Summary]], by: str) -> list[str]:
+    """Return the table ``stats --by`` prints: one row per group, with a header row.
+
+    Each row has the group's applications, responses, interviews, and median days
+    to a first response, or ``-`` when no response in the group has a date.
+    Labels longer than 30 characters are cut, ending in ``…``.
+    """
+    labels = [_shortened(label) for label, _ in groups]
+    width = max(len(by), *(len(label) for label in labels))
+    lines = [f"{by.capitalize():<{width}}  Applications  Responses  Interviews  Median days"]
+    for label, (_, summary) in zip(labels, groups, strict=True):
+        days = f"{median(summary.response_days):g}" if summary.response_days else "-"
+        lines.append(
+            f"{label:<{width}}  {summary.total:>12}  {_count_share(summary.responded, summary.total):>9}"
+            f"  {_count_share(summary.interviewed, summary.total):>10}  {days:>11}"
+        )
     return lines
 
 
@@ -198,6 +238,9 @@ def parser() -> argparse.ArgumentParser:
 
     stats = commands.add_parser("stats", help="Summarize statuses, responses, and time to respond")
     stats.add_argument("--since", metavar="YYYY-MM-DD", help="Only count applications submitted on or after this date")
+    stats.add_argument("--until", metavar="YYYY-MM-DD", help="Only count applications submitted on or before this date")
+    stats.add_argument("--by", choices=tuple(GROUPINGS),
+                       help="Also break the summary down by company or by month of submission")
 
     history = commands.add_parser("history", help="Show the dates an application's status changed")
     history.add_argument("id", type=int, help="Application ID")
@@ -286,11 +329,14 @@ def _update(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _stats(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    summary = summarize(connection, since=args.since)
+    summary = summarize(connection, since=args.since, until=args.until)
     if summary.total:
-        print("\n".join(summary_lines(summary, args.since)))
-    elif args.since:
-        print(f"No applications submitted on or after {args.since}.")
+        print("\n".join(summary_lines(summary, args.since, args.until)))
+        if args.by:
+            print()
+            print("\n".join(breakdown_lines(summarize_by(connection, args.by, args.since, args.until), args.by)))
+    elif args.since or args.until:
+        print(f"No applications{_scope(args.since, args.until)}.")
     else:
         print("No applications yet. Add your first with 'add'.")
     return 0

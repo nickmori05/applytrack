@@ -14,7 +14,7 @@ Python standard library.
 - Keep dated notes on each application, such as who you spoke to and what comes
   next, and correct or remove them later.
 - Summarize your search: statuses, response and interview rates, and how long
-  employers take to respond.
+  employers take to respond, for any date range and by company or month.
 - Correct details, archive applications you no longer want to see, or delete mistakes.
 - Export to CSV for a spreadsheet, and import from one.
 - Back up everything, including history, notes, and archive dates, to a JSON
@@ -188,6 +188,7 @@ application deletes its notes.
 ```sh
 python3 applytrack.py stats
 python3 applytrack.py stats --since 2026-09-01
+python3 applytrack.py stats --since 2026-09-01 --until 2026-09-30
 ```
 
 ```text
@@ -203,8 +204,12 @@ Days to first response: median 12, fastest 3, slowest 21 (from 2 responses)
 ```
 
 `stats` counts every application, archived ones included, since archiving tidies
-lists but does not change what happened. `--since` counts only applications
-submitted on or after a date.
+lists but does not change what happened. `--since` and `--until` count only
+applications submitted on or after and on or before a date; both days are
+included, and they can be combined to look at one week or month. The range picks
+applications by submission date only: a response that arrived after `--until`
+still counts, so an earlier period is not made to look quieter than it was. A
+`--since` after `--until` is an error.
 
 An application has a response once it reaches `interviewing`, `offer`, or
 `rejected`, and an interview once it reaches `interviewing` or `offer`. These come
@@ -217,6 +222,29 @@ Days to first response run from the submission date to the first response in the
 history. Responses whose date is `unknown`, from before history was kept or from
 an import, count toward the response rate but not the timing, and the summary says
 how many were left out. The line is omitted when there are no responses.
+
+`--by company` or `--by month` adds a table after the summary, with each group's
+applications, responses, interviews, and median days to a first response:
+
+```sh
+python3 applytrack.py stats --by company
+python3 applytrack.py stats --by month --since 2026-08-01
+```
+
+```text
+Company          Applications  Responses  Interviews  Median days
+Example Labs                2   2 (100%)     1 (50%)          9.5
+Example Company             1   1 (100%)    1 (100%)           15
+Other Co                    1     0 (0%)      0 (0%)            -
+```
+
+Company names that differ only in case are one company, shown as most recently
+entered, and companies with the most applications come first. Months are the
+submission month, oldest first, so you can see whether replies are getting faster
+or a change to your résumé made a difference. The groups add up to the summary
+above them and follow `--since` and `--until`. Archived applications are included
+as in the summary. `-` means no response in that group has a recorded date. Names
+longer than 30 characters are shortened with `…`.
 
 ### Archiving and deleting
 
@@ -375,7 +403,8 @@ applytrack/
   storage.py          SQLite schema, automatic upgrades, and record operations
   history.py          dated status changes and the timeline shown by history
   notes.py            dated notes: numbering, edits, deletion, and matching for --search
-  stats.py            the status, response, and timing summary shown by stats
+  stats.py            the status, response, and timing summary shown by stats, and
+                      its breakdown by company or month
   csv_io.py           CSV export and import
   backup.py           JSON backups of the whole database, and restoring them
   backup_check.py     reading a backup and checking every value before a restore
@@ -426,11 +455,12 @@ Install it, for example in a virtual environment, and run `ruff check .`.
 The tests use temporary databases and cover persistence across connections,
 due-date boundaries, validation and rejected changes, search of names, roles, and
 notes, CSV quoting and round trips, imports, deletion prompts, archiving, status
-history, notes and their numbering, edits, and deletion, summary statistics, JSON
-backup round trips and rejected backups, follow-up dates checked against submission
-dates, ID reuse, and upgrading databases from earlier versions, including failed
-upgrades. GitHub Actions runs the tests on Python 3.10 and 3.14 and `ruff check`
-for pushes to `main` and for pull requests.
+history, notes and their numbering, edits, and deletion, summary statistics with
+date ranges and breakdowns by company and month, JSON backup round trips and
+rejected backups, follow-up dates checked against submission dates, ID reuse, and
+upgrading databases from earlier versions, including failed upgrades. GitHub
+Actions runs the tests on Python 3.10 and 3.14 and `ruff check` for pushes to
+`main` and for pull requests.
 
 ## Limitations
 
@@ -451,8 +481,10 @@ for pushes to `main` and for pull requests.
   and does not look at statuses or dates, which have their own filters. It reads
   every note on each search, which is fast for a personal job search but has no
   full-text index.
-- `stats` has no end date or per-company breakdown, and its timing covers only
-  responses recorded with a date.
+- `stats` timing covers only responses recorded with a date. The breakdown has no
+  per-role grouping, and companies are matched by exact name apart from case, so
+  `Example Labs` and `Example Labs Inc.` are separate rows. Output is for reading,
+  not a machine-readable format.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
   The default database location assumes a checkout, so pass `--database` if you
   install it with `pip`.
