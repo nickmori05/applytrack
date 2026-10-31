@@ -25,7 +25,7 @@ from .storage import (
     restore_application,
     update_application,
 )
-from .validation import STATUSES
+from .validation import STATUSES, follow_up_in
 
 # The database lives in .local/ at the top of the checkout, next to applytrack.py,
 # whichever directory the command is run from.
@@ -161,7 +161,10 @@ def parser() -> argparse.ArgumentParser:
     add = commands.add_parser("add", help="Record a submitted application")
     add.add_argument("company")
     add.add_argument("role")
-    add.add_argument("--follow-up", metavar="YYYY-MM-DD")
+    add_follow_up = add.add_mutually_exclusive_group()
+    add_follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
+    add_follow_up.add_argument("--follow-up-in", metavar="DAYS", type=int,
+                               help="Follow up this many days from today instead of on a set date")
     add.add_argument("--applied-on", metavar="YYYY-MM-DD", help="Submission date (default: today)")
 
     listing = commands.add_parser("list", help="Show saved applications")
@@ -226,10 +229,21 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _follow_up(args: argparse.Namespace) -> str | None:
+    # --follow-up-in becomes a date here, so storage applies its usual rules to it.
+    return args.follow_up if args.follow_up_in is None else follow_up_in(args.follow_up_in)
+
+
+def _scheduled(args: argparse.Namespace, follow_up_on: str | None) -> str:
+    # A date worked out from a number of days is shown, since it was never typed.
+    return "" if args.follow_up_in is None else f" Follow up on {follow_up_on}."
+
+
 def _add(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    application_id = add_application(connection, args.company, args.role, args.follow_up,
+    follow_up_on = _follow_up(args)
+    application_id = add_application(connection, args.company, args.role, follow_up_on,
                                      applied_on=args.applied_on)
-    print(f"Added application #{application_id}.")
+    print(f"Added application #{application_id}.{_scheduled(args, follow_up_on)}")
     return 0
 
 

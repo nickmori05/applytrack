@@ -57,6 +57,21 @@ def check_follow_up(follow_up_on: str | None, applied_on: str) -> str | None:
     return follow_up_on
 
 
+MAX_FOLLOW_UP_DAYS = 3650
+
+
+def follow_up_in(days: int) -> str:
+    """Return the date ``days`` days after today's local date, as ``YYYY-MM-DD``.
+
+    ``days`` counts from today, not from the submission date, so the result is
+    never before a valid submission date. Zero means today. Raises ValueError for
+    a negative number or one above MAX_FOLLOW_UP_DAYS (about ten years).
+    """
+    if not 0 <= days <= MAX_FOLLOW_UP_DAYS:
+        raise ValueError(f"Follow-up days must be a whole number from 0 to {MAX_FOLLOW_UP_DAYS}.")
+    return date.fromordinal(date.today().toordinal() + days).isoformat()
+
+
 def check_status(status: str) -> str:
     """Return ``status`` if it is one of STATUSES, or raise ValueError."""
     if status not in STATUSES:
