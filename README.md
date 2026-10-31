@@ -43,6 +43,7 @@ command, for every option. `python3 -m applytrack` works the same way.
 ```sh
 python3 applytrack.py add "Example Company" "Engineer"
 python3 applytrack.py add "Example Company" "Engineer" --applied-on 2026-09-01 --follow-up 2026-09-15
+python3 applytrack.py add "Example Company" "Engineer" --follow-up-in 14
 ```
 
 The submission date defaults to today and can be any valid `YYYY-MM-DD` date up
@@ -50,6 +51,14 @@ to today. A follow-up date can be any valid date on or after the submission date
 including the same day, so an application sent earlier with a follow-up before
 today needs its `--applied-on`. Company and role are trimmed and cannot be blank.
 Invalid input is rejected without saving anything.
+
+`--follow-up-in DAYS` sets the follow-up that many days from today instead of on
+a date you type, and prints the date it saved, for example
+`Added application #2. Follow up on 2026-09-15.` It counts from today even with an
+earlier `--applied-on`, so the follow-up is never before the submission date. `0`
+means today, the largest value is 3650, and it cannot be combined with
+`--follow-up`. The date is saved as an ordinary follow-up date and does not move
+later.
 
 All dates use the computer's local calendar date. A follow-up represents a day,
 not a reminder at a particular time.
@@ -99,6 +108,7 @@ text cannot rewrite the terminal.
 ```sh
 python3 applytrack.py update 1 --status interviewing
 python3 applytrack.py update 1 --follow-up 2026-09-23
+python3 applytrack.py update 1 --follow-up-in 7
 python3 applytrack.py update 1 --clear-follow-up
 python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
 python3 applytrack.py update 1 --applied-on 2026-08-28
@@ -109,7 +119,11 @@ Any of these options can be combined. They follow the same rules as `add`, and i
 any requested change is invalid, the whole update is rejected. The ID never changes.
 A new `--follow-up` is checked against the submission date, saved or given in the
 same command. Moving `--applied-on` past the saved follow-up is rejected unless the
-same command also gives a new `--follow-up` or `--clear-follow-up`.
+same command also gives a new `--follow-up`, `--follow-up-in`, or `--clear-follow-up`.
+`--follow-up-in DAYS` works as it does for `add`, counting from today and printing
+the new date, so `update 1 --status interviewing --follow-up-in 7` records the
+change and schedules the next check-in together. Only one of `--follow-up`,
+`--follow-up-in`, and `--clear-follow-up` can be given.
 
 ### Status history
 
