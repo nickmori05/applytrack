@@ -92,6 +92,67 @@ class FollowUpInTests(unittest.TestCase):
         self.assertIn("not allowed with argument", errors)
         self.assertFalse(self.database.exists())
 
+    def add(self, *arguments):
+        self.assertEqual(self.run_cli("add", "Example", "Engineer", *arguments)[0], 0)
+
+    def history(self):
+        return self.run_cli("history", "1")[1]
+
+    def test_update_reschedules_the_follow_up_and_shows_the_date(self):
+        self.add("--applied-on", "2026-09-01", "--follow-up", "2026-09-15")
+        code, output, errors = self.run_cli("update", "1", "--follow-up-in", "10")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertEqual(output, f"Updated application #1. Follow up on {days_from_today(10)}.\n")
+        row = self.rows()[0]
+        self.assertEqual((row["applied_on"], row["follow_up_on"]), ("2026-09-01", days_from_today(10)))
+
+    def test_update_combines_follow_up_in_with_a_status_change(self):
+        self.add("--applied-on", "2026-09-01")
+        code, output, _ = self.run_cli("update", "1", "--status", "interviewing", "--changed-on", "2026-09-12",
+                                       "--follow-up-in", "7")
+        self.assertEqual(code, 0)
+        self.assertEqual(output, f"Updated application #1. Follow up on {days_from_today(7)}.\n")
+        row = self.rows()[0]
+        self.assertEqual((row["status"], row["follow_up_on"]), ("interviewing", days_from_today(7)))
+        self.assertIn("2026-09-12  interviewing", self.history())
+
+    def test_update_with_a_later_submission_date_and_follow_up_in(self):
+        # Moving the submission date past the saved follow-up is allowed when the
+        # same command sets a new follow-up, which --follow-up-in does.
+        self.add("--applied-on", "2026-09-01", "--follow-up", "2026-09-05")
+        code, _, errors = self.run_cli("update", "1", "--applied-on", "2026-09-10", "--follow-up-in", "3")
+        self.assertEqual((code, errors), (0, ""))
+        row = self.rows()[0]
+        self.assertEqual((row["applied_on"], row["follow_up_on"]), ("2026-09-10", days_from_today(3)))
+
+    def test_update_rejects_out_of_range_days_and_changes_nothing(self):
+        self.add("--applied-on", "2026-09-01", "--follow-up", "2026-09-15")
+        before = self.rows()
+        history = self.history()
+        self.assertEqual(self.run_cli("update", "1", "--status", "rejected", "--follow-up-in", "-3"),
+                         (1, "", f"Error: {RANGE}\n"))
+        self.assertEqual(self.rows(), before)
+        self.assertEqual(self.history(), history)
+
+    def test_update_of_a_missing_application_is_an_error(self):
+        code, output, errors = self.run_cli("update", "9", "--follow-up-in", "7")
+        self.assertEqual((code, output), (1, ""))
+        self.assertIn("does not exist", errors)
+
+    def test_update_rejects_follow_up_in_with_another_follow_up_option(self):
+        self.add()
+        for other in (["--follow-up", "2026-12-01"], ["--clear-follow-up"]):
+            with self.subTest(other=other):
+                code, errors = self.run_argparse("update", "1", "--follow-up-in", "7", *other)
+                self.assertEqual(code, 2)
+                self.assertIn("not allowed with argument", errors)
+        self.assertIsNone(self.rows()[0]["follow_up_on"])
+
+    def test_update_without_follow_up_in_prints_as_before(self):
+        self.add()
+        self.assertEqual(self.run_cli("update", "1", "--status", "interviewing"),
+                         (0, "Updated application #1.\n", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

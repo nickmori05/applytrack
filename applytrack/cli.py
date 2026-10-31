@@ -193,6 +193,8 @@ def parser() -> argparse.ArgumentParser:
                         help="Date the new --status took effect (default: today)")
     follow_up = update.add_mutually_exclusive_group()
     follow_up.add_argument("--follow-up", metavar="YYYY-MM-DD")
+    follow_up.add_argument("--follow-up-in", metavar="DAYS", type=int,
+                           help="Follow up this many days from today instead of on a set date")
     follow_up.add_argument("--clear-follow-up", action="store_true")
 
     stats = commands.add_parser("stats", help="Summarize statuses, responses, and time to respond")
@@ -277,10 +279,11 @@ def _import(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 
 def _update(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
-    update_application(connection, args.id, args.status, args.follow_up, args.clear_follow_up,
+    follow_up_on = _follow_up(args)
+    update_application(connection, args.id, args.status, follow_up_on, args.clear_follow_up,
                        company=args.company, role=args.role, applied_on=args.applied_on,
                        changed_on=args.changed_on)
-    print(f"Updated application #{args.id}.")
+    print(f"Updated application #{args.id}.{_scheduled(args, follow_up_on)}")
     return 0
 
 

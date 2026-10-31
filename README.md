@@ -108,6 +108,7 @@ text cannot rewrite the terminal.
 ```sh
 python3 applytrack.py update 1 --status interviewing
 python3 applytrack.py update 1 --follow-up 2026-09-23
+python3 applytrack.py update 1 --follow-up-in 7
 python3 applytrack.py update 1 --clear-follow-up
 python3 applytrack.py update 1 --company "Example Labs" --role "Backend Engineer"
 python3 applytrack.py update 1 --applied-on 2026-08-28
@@ -118,7 +119,11 @@ Any of these options can be combined. They follow the same rules as `add`, and i
 any requested change is invalid, the whole update is rejected. The ID never changes.
 A new `--follow-up` is checked against the submission date, saved or given in the
 same command. Moving `--applied-on` past the saved follow-up is rejected unless the
-same command also gives a new `--follow-up` or `--clear-follow-up`.
+same command also gives a new `--follow-up`, `--follow-up-in`, or `--clear-follow-up`.
+`--follow-up-in DAYS` works as it does for `add`, counting from today and printing
+the new date, so `update 1 --status interviewing --follow-up-in 7` records the
+change and schedules the next check-in together. Only one of `--follow-up`,
+`--follow-up-in`, and `--clear-follow-up` can be given.
 
 ### Status history
 
