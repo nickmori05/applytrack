@@ -18,6 +18,8 @@ Python standard library.
 - Export to CSV for a spreadsheet, and import from one.
 - Back up everything, including history, notes, and archive dates, to a JSON
   file, and restore it into a new database.
+- Find open applications that have gone quiet, with no status change or note for
+  a number of days.
 
 ## Quick start
 
@@ -465,3 +467,6 @@ requests.
 - ApplyTrack is meant to be run from a checkout and is not published as a package.
   The default database location assumes a checkout, so pass `--database` if you
   install it with `pip`.
+- `quiet` judges activity only by what you record: an email you did not write
+  down as a note does not count. It counts calendar days, with no weekday or
+  business-day counting, and it is a list you run, not a reminder.
