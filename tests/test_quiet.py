@@ -1,5 +1,5 @@
-from contextlib import closing
-from datetime import date
+from contextlib import closing, redirect_stderr, redirect_stdout
+from datetime import date, timedelta
 import io
 from pathlib import Path
 import sqlite3
@@ -10,6 +10,18 @@ import applytrack
 from applytrack.activity import MAX_DAYS, check_days, quiet_applications
 
 TODAY = date(2026, 10, 1)
+
+
+def days_ago(days):
+    return (date.today() - timedelta(days=days)).isoformat()
+
+
+def run_cli(database, *arguments):
+    output = io.StringIO()
+    errors = io.StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        code = applytrack.main(["--database", str(database), *arguments])
+    return code, output.getvalue(), errors.getvalue()
 
 
 class QuietApplicationTests(unittest.TestCase):
@@ -118,6 +130,65 @@ class QuietApplicationTests(unittest.TestCase):
         with closing(applytrack.connect(legacy)) as connection:
             found = quiet_applications(connection, 14, TODAY)
         self.assertEqual([(item.last_active_on, item.activity) for item in found], [("2026-08-01", "submitted")])
+
+
+class QuietCommandTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.database = Path(directory.name) / "applications.sqlite3"
+
+    def test_lists_quiet_applications_with_their_last_activity(self):
+        run_cli(self.database, "add", "Example Company", "Software Engineer", "--applied-on", days_ago(40))
+        run_cli(self.database, "add", "Example Labs", "Backend Engineer", "--applied-on", days_ago(30),
+                "--follow-up", days_ago(1))
+        run_cli(self.database, "update", "2", "--status", "interviewing", "--changed-on", days_ago(20))
+        run_cli(self.database, "add", "Other Co", "Engineer", "--applied-on", days_ago(40))
+        run_cli(self.database, "note", "3", "Spoke to the recruiter.", "--on", days_ago(3))
+        self.assertEqual(run_cli(self.database, "quiet"), (0, (
+            "#1  Example Company — Software Engineer\n"
+            f"    applied | Quiet for 40 days, since {days_ago(40)} (submitted) | Follow up: not set\n"
+            "#2  Example Labs — Backend Engineer\n"
+            f"    interviewing | Quiet for 20 days, since {days_ago(20)} (became interviewing)"
+            f" | Follow up: {days_ago(1)}\n"
+        ), ""))
+        code, output, _ = run_cli(self.database, "quiet", "--days", "3")
+        self.assertEqual(code, 0)
+        self.assertIn(f"    applied | Quiet for 3 days, since {days_ago(3)} (note) | Follow up: not set\n", output)
+        self.assertEqual(output.count("#"), 3)
+
+    def test_days_option_and_singular_wording(self):
+        run_cli(self.database, "add", "Example", "Engineer", "--applied-on", days_ago(1))
+        self.assertEqual(run_cli(self.database, "quiet"),
+                         (0, "No open applications have been quiet for 14 days or more.\n", ""))
+        self.assertEqual(run_cli(self.database, "quiet", "--days", "1"), (0, (
+            "#1  Example — Engineer\n"
+            f"    applied | Quiet for 1 day, since {days_ago(1)} (submitted) | Follow up: not set\n"
+        ), ""))
+        self.assertEqual(run_cli(self.database, "quiet", "--days", "2"),
+                         (0, "No open applications have been quiet for 2 days or more.\n", ""))
+
+    def test_empty_database(self):
+        self.assertEqual(run_cli(self.database, "quiet", "--days", "0"),
+                         (0, "No open applications have been quiet for 0 days or more.\n", ""))
+
+    def test_escapes_control_characters_in_names(self):
+        run_cli(self.database, "add", "Evil\x1b[2JCo", "Engineer", "--applied-on", days_ago(20))
+        code, output, _ = run_cli(self.database, "quiet")
+        self.assertEqual(code, 0)
+        self.assertTrue(output.startswith("#1  Evil\\x1b[2JCo — Engineer\n"))
+
+    def test_out_of_range_days_are_an_error(self):
+        for days in ("-1", "3651"):
+            with self.subTest(days=days):
+                self.assertEqual(run_cli(self.database, "quiet", "--days", days),
+                                 (1, "", "Error: Days must be a whole number from 0 to 3650.\n"))
+
+    def test_non_numeric_days_are_rejected_by_argparse(self):
+        with redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit) as raised:
+            applytrack.main(["--database", str(self.database), "quiet", "--days", "two"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("invalid int value", errors.getvalue())
 
 
 if __name__ == "__main__":

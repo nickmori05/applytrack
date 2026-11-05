@@ -221,6 +221,34 @@ first if you may want the record back, and prefer archiving or the `rejected` an
 `withdrawn` statuses for applications that simply ended. A deleted application's
 ID is never given to another application.
 
+### Quiet applications
+
+```sh
+python3 applytrack.py quiet
+python3 applytrack.py quiet --days 7
+```
+
+```text
+#1  Example Company — Software Engineer
+    applied | Quiet for 34 days, since 2026-10-01 (submitted) | Follow up: not set
+#2  Example Labs — Backend Engineer
+    interviewing | Quiet for 19 days, since 2026-10-16 (became interviewing) | Follow up: 2026-11-02
+```
+
+`quiet` shows the applications that have gone silent, so you can chase them or
+mark them `rejected` or `withdrawn`. An application's last activity is the latest
+of its submission date, its last status change, and its last note, and `quiet`
+lists those whose last activity is at least `--days` days ago (default 14, from 0
+to 3650), quietest first. If several kinds of activity fall on that day, a status
+change is named before a note, and a note before the submission.
+
+Only applications still waiting on an outcome are shown: `applied`,
+`interviewing`, and `offer`, not `rejected`, `withdrawn`, or archived ones. A
+follow-up date does not hide an application, since a planned follow-up is not
+news, but it is shown so you can see which quiet applications already have one.
+A note dated before the submission does not count as later activity, and an
+imported status with no recorded date counts from the submission.
+
 ### Exporting to CSV
 
 ```sh

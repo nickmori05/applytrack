@@ -7,6 +7,7 @@ import sqlite3
 from statistics import median
 import sys
 
+from .activity import DEFAULT_DAYS, Quiet, quiet_applications
 from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
@@ -223,6 +224,10 @@ def parser() -> argparse.ArgumentParser:
     delete = commands.add_parser("delete", help="Permanently remove an application")
     delete.add_argument("id", type=int, help="Application ID")
     delete.add_argument("--yes", action="store_true", help="Delete without asking for confirmation")
+
+    quiet = commands.add_parser("quiet", help="Show open applications with no recent activity")
+    quiet.add_argument("--days", type=int, default=DEFAULT_DAYS, metavar="N",
+                       help=f"Days since the last status change, note, or submission (default: {DEFAULT_DAYS})")
     return root
 
 
@@ -345,6 +350,32 @@ def _delete(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
     return 0
 
 
+def _days(count: int) -> str:
+    return f"{count} day" + ("" if count == 1 else "s")
+
+
+def quiet_lines(quiet: list[Quiet]) -> list[str]:
+    """Return the lines ``quiet`` prints: each application and how long it has been quiet."""
+    lines = []
+    for item in quiet:
+        row = item.application
+        lines.append(_summary(row))
+        lines.append(
+            f"    {row['status']} | Quiet for {_days(item.days)}, since {item.last_active_on} ({item.activity})"
+            f" | Follow up: {row['follow_up_on'] or 'not set'}"
+        )
+    return lines
+
+
+def _quiet(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    quiet = quiet_applications(connection, args.days)
+    if quiet:
+        print("\n".join(quiet_lines(quiet)))
+    else:
+        print(f"No open applications have been quiet for {_days(args.days)} or more.")
+    return 0
+
+
 COMMANDS = {
     "add": _add,
     "list": _list,
@@ -360,6 +391,7 @@ COMMANDS = {
     "archive": _archive,
     "restore": _restore,
     "delete": _delete,
+    "quiet": _quiet,
 }
 
 
