@@ -359,6 +359,7 @@ applytrack/
   csv_io.py           CSV export and import
   backup.py           JSON backups of the whole database, and restoring them
   backup_check.py     reading a backup and checking every value before a restore
+  activity.py         last activity dates and the quiet applications shown by quiet
   cli.py              argument parsing, terminal output, and exit codes
   __main__.py         python3 -m applytrack
 tests/                unittest suite, one file per area
