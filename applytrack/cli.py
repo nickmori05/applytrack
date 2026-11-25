@@ -11,6 +11,7 @@ from .backup import restore_backup, save_backup, snapshot, write_backup
 from .backup_check import read_backup, record_counts
 from .csv_io import export_csv, import_csv
 from .history import status_changes, timeline
+from .integrity import check_database, check_lines
 from .notes import application_notes, matching_notes
 from .stats import Summary, summarize
 from .storage import (
@@ -180,6 +181,8 @@ def parser() -> argparse.ArgumentParser:
     importing.add_argument("file", help="CSV file to read, or - for standard input")
     importing.add_argument("--dry-run", action="store_true", help="Check the file without saving anything")
 
+    commands.add_parser("check", help="Report blank text, bad dates, and other inconsistencies in the database")
+
     update = commands.add_parser("update", help="Change an application's details, status, or follow-up")
     update.add_argument("id", type=int, help="Application ID")
     update.add_argument("--company", help="Correct the company name")
@@ -231,6 +234,12 @@ def _add(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
                                      applied_on=args.applied_on)
     print(f"Added application #{application_id}.")
     return 0
+
+
+def _check(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
+    report = check_database(connection)
+    print("\n".join(_terminal_text(line) for line in check_lines(report)))
+    return 1 if report.problems else 0
 
 
 def _list(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
@@ -347,6 +356,7 @@ def _delete(connection: sqlite3.Connection, args: argparse.Namespace) -> int:
 
 COMMANDS = {
     "add": _add,
+    "check": _check,
     "list": _list,
     "export": _export,
     "import": _import,
