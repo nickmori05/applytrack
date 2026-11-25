@@ -2,6 +2,8 @@
 
 Every function takes an open connection from ``connect``. Writes run inside a
 transaction, and invalid input raises ValueError before anything is saved.
+``connect`` records the schema version and refuses a database written by a
+newer ApplyTrack, leaving that file unchanged.
 """
 
 from collections.abc import Callable, Iterable
@@ -77,6 +79,25 @@ UPGRADES = (
 )
 
 
+# Bumped when the schema changes. Stored in SQLite's user_version. Version 0 is
+# a database from before versions were recorded; the upgrades above still decide
+# what it needs. A higher version was written by a newer ApplyTrack.
+SCHEMA_VERSION = 1
+
+
+def schema_version(connection: sqlite3.Connection) -> int:
+    """Return the database's schema version, or 0 if it predates schema versions."""
+    return connection.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _stamp_schema_version(connection: sqlite3.Connection) -> None:
+    # The header write does not accept a bound parameter. It follows the upgrades
+    # and their commits, so a failed upgrade is not recorded as the current schema.
+    if connection.in_transaction:
+        connection.commit()
+    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
 def _upgrade(
     connection: sqlite3.Connection,
     needed: Callable[[sqlite3.Connection], bool],
@@ -98,14 +119,24 @@ def _upgrade(
 def connect(database: Path) -> sqlite3.Connection:
     """Open ``database``, creating it and its folder if needed.
 
-    Databases created by earlier versions are upgraded in place first. If an
-    upgrade fails, the connection is closed and the error is raised with the
-    database left as it was. Rows are returned as ``sqlite3.Row`` objects.
+    Databases created by earlier versions are upgraded in place first, then
+    marked with ``SCHEMA_VERSION``. A database marked with a newer version is
+    refused and left as it was, so an older ApplyTrack does not guess at a
+    schema it does not know. If an upgrade fails, the connection is closed and
+    the error is raised with the database left as it was. Rows are returned as
+    ``sqlite3.Row`` objects.
     """
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database)
     connection.row_factory = sqlite3.Row
     connection.create_function("casefold", 1, str.casefold, deterministic=True)
+    version = schema_version(connection)
+    if version > SCHEMA_VERSION:
+        connection.close()
+        raise ValueError(
+            f"This database was written by a newer ApplyTrack (schema version {version}); "
+            f"this one uses schema version {SCHEMA_VERSION}. Update ApplyTrack before opening it."
+        )
     _create_table(connection, "applications")
     connection.commit()
     for needed, apply in UPGRADES:
@@ -115,6 +146,12 @@ def connect(database: Path) -> sqlite3.Connection:
             except BaseException:
                 connection.close()
                 raise
+    if version < SCHEMA_VERSION:
+        try:
+            _stamp_schema_version(connection)
+        except BaseException:
+            connection.close()
+            raise
     return connection
 
 
