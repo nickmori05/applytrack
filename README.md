@@ -322,6 +322,32 @@ indented UTF-8 JSON:
 }
 ```
 
+### Checking the database
+
+```sh
+python3 applytrack.py check
+```
+
+```text
+Schema version 1.
+Applications: 4. Status changes: 2. Notes: 3.
+No problems found.
+```
+
+`check` reads the database and reports inconsistencies the other commands
+cannot create. It names a blank company, role, or note, a status outside the
+five, a date that is not a real `YYYY-MM-DD` day, a status change dated before
+the application's submission or before a change that was entered earlier, and
+a status change or note whose application is gone. It also runs SQLite's
+integrity check, which reports a broken constraint or a damaged file. Nothing
+is written. `check` exits with status 1 when it finds a problem, and the report
+goes to standard output.
+
+A follow-up saved before it had to fall on or after the submission date is not
+reported, and neither is a status that has no history: that is how an import,
+or a database from before history was kept, looks. Dates after today are not
+reported either, since a backup from another computer may contain them.
+
 ## Data
 
 The default database is `.local/applications.sqlite3` at the top of the checkout,
@@ -346,6 +372,12 @@ status, company, and role can be updated as usual. The rule applies the next tim
 either date is changed, so fix one with `update ID --follow-up DATE`,
 `--clear-follow-up`, or an `--applied-on` no later than the follow-up.
 
+The database records a schema version. Opening one written by a newer
+ApplyTrack stops without changing it, and says to update ApplyTrack; an older
+database is still upgraded as described above, then marked with the version
+this ApplyTrack knows. `check` prints the version. It is SQLite's own
+`user_version`, so it is not one of the tables.
+
 ## Design
 
 ```text
@@ -367,6 +399,9 @@ tests/                unittest suite, one file per area
 - **SQLite:** durable local storage without running a server. One table holds
   applications, and two more hold their status changes and notes. A shared or web
   version would need a different storage and access design.
+- **Schema version:** `connect` marks the database with the schema it understands
+  and refuses to open one written by a newer ApplyTrack, without changing it.
+  `check` reports rows that the other commands could not have saved.
 - **Storage is separate from the interface:** `storage` and `csv_io` raise
   `ValueError` for invalid input and never print. `cli` turns errors into an
   `Error: ...` message on stderr with exit status 1.
